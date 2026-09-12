@@ -1,17 +1,14 @@
 // pages/api/ai-assistant.js
 //
-// Server-side route that powers the Employee Dashboard's text + voice AI assistant
-// using xAI's Grok API. The API key never touches the browser — this route is the
-// only place that talks to Grok. (This replaces the earlier separate /api/chat.js —
-// everything now goes through this one endpoint.)
+// Server-side route that powers the Employee Dashboard's text AI assistant using
+// xAI's Grok API. The API key never touches the browser — this route is the only
+// place that talks to Grok.
 //
 // Setup:
 //   1. Get a key from https://console.x.ai
 //   2. Add to .env.local (see .env.local.example):
 //        XAI_API_KEY=xai-xxxxxxxxxxxxxxxxxxxx
-//        GROK_MODEL=grok-4.3          (optional — check console.x.ai for current model slugs;
-//                                       grok-4-fast and other grok-4-* variants were retired
-//                                       from the xAI API on May 15, 2026)
+//        GROK_MODEL=grok-4-fast          (optional — check console.x.ai for current model slugs)
 //   3. Restart `npm run dev`
 //
 // If XAI_API_KEY is missing or the Grok call fails for any reason (network, rate
@@ -19,39 +16,14 @@
 // erroring out — per the PRD's "never fails during a demo" requirement.
 
 const GROK_ENDPOINT = 'https://api.x.ai/v1/chat/completions';
-const GROK_MODEL = process.env.GROK_MODEL || 'grok-4.3';
-
-// Static ground truth, used only if the caller doesn't pass live `products` data
-// (e.g. products table not loaded yet) — keeps the assistant from ever having zero
-// product knowledge to work with.
-const FALLBACK_PRODUCT_TABLE = `| ID   | Product                                  | Category            | Price (PKR) | Seller commission |
-|------|-------------------------------------------|----------------------|-------------|--------------------|
-| P001 | SecureShield 1-Year Antivirus License     | Antivirus/Security   | 1000        | 20%                |
-| P002 | Digital Skills Starter Course             | Online Course        | 1500        | 15%                |
-| P003 | 10GB Monthly Data Bundle                  | Mobile Data          | 500         | 8%                 |`;
-
-function buildProductTable(products) {
-  if (!Array.isArray(products) || products.length === 0) return FALLBACK_PRODUCT_TABLE;
-  const rows = products
-    .map(
-      (p) =>
-        `| ${p.id ?? '-'} | ${p.name ?? '-'} | ${p.category ?? '-'} | ${p.price ?? '-'} | ${
-          p.commission_pct ?? p.commission ?? '-'
-        }% |`
-    )
-    .join('\n');
-  return `| ID | Product | Category | Price (PKR) | Seller commission |\n|----|---------|----------|-------------|--------------------|\n${rows}`;
-}
+const GROK_MODEL = process.env.GROK_MODEL || 'grok-4-fast';
 
 // ---------------------------------------------------------------------------
-// This is the "training" — a system prompt grounded in exact platform facts
-// (live product table + commission/Education Fund rules) so Grok never invents
-// prices, products or policies, and always answers in the persona the PRD describes.
+// This is the "training" — a system prompt grounded in the exact PRD facts
+// (products, commission %, Education Fund rule) so Grok never invents prices,
+// products or policies, and always answers in the persona the PRD describes.
 // ---------------------------------------------------------------------------
-function buildSystemPrompt({ products, sellerName }) {
-  return `You are the Rozgar AI Sales Assistant — an in-app helper inside the Employee (Seller) Dashboard of "Rozgar", an AI-guided digital reselling platform in Pakistan${
-    sellerName ? `, currently helping a seller named ${sellerName}` : ''
-  }.
+const SYSTEM_PROMPT = `You are the Rozgar AI Sales Assistant — an in-app helper inside the Employee (Seller) Dashboard of "Rozgar", an AI-guided digital reselling platform in Pakistan.
 
 WHO YOU ARE HELPING
 Your users are sellers who are unemployed or low-income, often with little to no sales experience, and sometimes low literacy. Many will type in Roman Urdu, Urdu, English, or a mix. Match the language/style the seller uses. Keep every answer SHORT (2-4 sentences max), simple, and encouraging — never use jargon.
@@ -63,8 +35,12 @@ YOUR JOB (from the product spec — do all of these when relevant)
 4. Tier-1 FAQ — order status, refund policy, when commission is paid.
 5. General encouragement — this is often someone's first income-earning opportunity; be warm and confidence-building.
 
-GROUND TRUTH — ONLY the products in this table exist right now. NEVER invent a product, price, or commission number. NEVER mention any product, price, or percentage not listed here.
-${buildProductTable(products)}
+GROUND TRUTH — ONLY these 3 products exist. NEVER invent a product, price, or commission number. NEVER mention any product, price, or percentage not listed here.
+| ID   | Product                                  | Category            | Price (PKR) | Seller commission |
+|------|-------------------------------------------|----------------------|-------------|--------------------|
+| P001 | SecureShield 1-Year Antivirus License     | Antivirus/Security   | 1000        | 20%                |
+| P002 | Digital Skills Starter Course             | Online Course        | 1500        | 15%                |
+| P003 | 10GB Monthly Data Bundle                  | Mobile Data          | 500         | 8%                 |
 
 MONEY RULES
 - Commission is only credited after the order/activation is confirmed in the system — there is no waiting period beyond that.
@@ -77,10 +53,9 @@ WHAT ROZGAR IS NOT (say this plainly if asked)
 
 STYLE RULES
 - Prefer very short, plain sentences over long explanations.
-- When asked "what should I sell / mujhe kya bechna chahiye", default to recommending whichever product has the highest commission unless the seller's message suggests a different fit.
+- When asked "what should I sell / mujhe kya bechna chahiye", default to recommending P001 (SecureShield) unless the seller's message suggests a different fit — it has the highest commission and is the easiest to explain.
 - When asked to write a pitch/script, keep it to 1-2 lines the seller can say out loud.
 - Never claim to be human. Never promise anything outside the table above.`;
-}
 
 // Lightweight rule-based fallback — same behavior as the original demo-safe assistant.
 function ruleBasedFallback(text) {
@@ -106,7 +81,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ success: false, error: 'Method not allowed' });
   }
 
-  const { message, history, products, sellerName } = req.body || {};
+  const { message, history } = req.body || {};
 
   if (!message || typeof message !== 'string' || !message.trim()) {
     return res.status(400).json({ success: false, error: 'message is required' });
@@ -127,7 +102,7 @@ export default async function handler(req, res) {
     // Keep only the last few turns so requests stay small/fast for the demo.
     const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
     const grokMessages = [
-      { role: 'system', content: buildSystemPrompt({ products, sellerName }) },
+      { role: 'system', content: SYSTEM_PROMPT },
       ...recentHistory.map((m) => ({
         role: m.from === 'user' ? 'user' : 'assistant',
         content: m.text,

@@ -13,25 +13,7 @@ export async function signUp(email, password, fullName, role, city = null) {
   });
 
   if (authError) {
-    const msg = authError.message.toLowerCase();
-    if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('already been registered')) {
-      return {
-        success: false,
-        alreadyExists: true,
-        error: 'This email already has an account. Please log in instead.',
-      };
-    }
     return { success: false, error: authError.message };
-  }
-
-  // Supabase returns no error but an empty `identities` array when the email
-  // already belongs to an account (this prevents leaking which emails exist).
-  if (authData.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
-    return {
-      success: false,
-      alreadyExists: true,
-      error: 'This email already has an account. Please log in instead.',
-    };
   }
 
   // Create matching profile row in `users` table
@@ -59,17 +41,6 @@ export async function signIn(email, password) {
   });
 
   if (error) {
-    const msg = error.message.toLowerCase();
-    if (msg.includes('invalid login credentials')) {
-      // Supabase intentionally doesn't reveal whether the email exists or the
-      // password is wrong (this prevents attackers from discovering which
-      // emails are registered), so we show one honest, helpful message.
-      return {
-        success: false,
-        invalidCredentials: true,
-        error: "We couldn't log you in. Double-check your email and password, or sign up if you don't have an account yet.",
-      };
-    }
     return { success: false, error: error.message };
   }
 

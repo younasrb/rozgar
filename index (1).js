@@ -12,13 +12,13 @@ import {
   deleteProduct,
   uploadProductImage,
   getApprovedSellersFull,
-  adminSetAssignedProduct,
-  approveProductChange,
-  rejectProductChange,
-  getAdmins,
-  getAdminLogs,
-  logAdminAction,
-  createAdminAccount,
+  getAllSellerProducts,
+  approveProductRequest,
+  rejectProductRequest,
+  getPendingSaleRequests,
+  approveSaleRequest,
+  rejectSaleRequest,
+  getSignedScreenshotUrl,
 } from '../../lib/api';
 
 const CATEGORY_OPTIONS = ['Antivirus/Security', 'Online Course', 'Mobile Data'];
@@ -28,12 +28,15 @@ export default function AdminDashboard() {
   const [user, setUser] = useState(null);
   const [applications, setApplications] = useState([]);
   const [sellers, setSellers] = useState([]);
+  const [sellerProducts, setSellerProducts] = useState([]); // flat list of seller_products rows (all sellers)
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState(null);
   const [assignSelections, setAssignSelections] = useState({}); // { [applicationId]: productId }
-  const [sellerSelections, setSellerSelections] = useState({}); // { [applicationId]: productId } for the Employees panel
-  const [sellerActionId, setSellerActionId] = useState(null);
+  const [requestActionId, setRequestActionId] = useState(null); // seller_products row id currently being approved/rejected
+  const [saleRequests, setSaleRequests] = useState([]); // Pending sale_requests waiting for payment-screenshot review
+  const [saleRequestActionId, setSaleRequestActionId] = useState(null);
+  const [screenshotLoadingId, setScreenshotLoadingId] = useState(null);
 
   useEffect(() => {
     // Once products are loaded, pre-fill each pending application's assign-dropdown
@@ -70,15 +73,6 @@ export default function AdminDashboard() {
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
-  const [admins, setAdmins] = useState([]);
-  const [logs, setLogs] = useState([]);
-  const [newAdminName, setNewAdminName] = useState('');
-  const [newAdminEmail, setNewAdminEmail] = useState('');
-  const [newAdminPassword, setNewAdminPassword] = useState('');
-  const [creatingAdmin, setCreatingAdmin] = useState(false);
-  const [addAdminError, setAddAdminError] = useState('');
-  const [addAdminDone, setAddAdminDone] = useState(false);
-
   useEffect(() => {
     async function load() {
       const profile = await getCurrentUser();
@@ -90,48 +84,55 @@ export default function AdminDashboard() {
       await refreshApplications();
       await refreshProducts();
       await refreshSellers();
-      await refreshAdmins();
-      await refreshLogs();
+      await refreshSellerProducts();
+      await refreshSaleRequests();
       setLoading(false);
     }
     load();
   }, [router]);
 
-  async function refreshAdmins() {
-    const res = await getAdmins();
-    if (res.success) setAdmins(res.admins);
-  }
-
-  async function refreshLogs() {
-    const res = await getAdminLogs();
-    if (res.success) setLogs(res.logs);
-  }
-
-  async function handleCreateAdmin(e) {
-    e.preventDefault();
-    setAddAdminError('');
-    setCreatingAdmin(true);
-
-    const result = await createAdminAccount(newAdminEmail, newAdminPassword, newAdminName);
-
-    if (!result.success) {
-      setCreatingAdmin(false);
-      setAddAdminError(result.error);
-      return;
-    }
-
-    await logAdminAction(user.id, user.full_name, 'created_admin', `Created new admin account: ${newAdminName}`);
-
-    setCreatingAdmin(false);
-    setAddAdminDone(true);
-    // createAdminAccount() already signed the session out — send the acting
-    // admin back to /login so they can log back in as themselves.
-    setTimeout(() => router.push('/login'), 2000);
-  }
-
   async function refreshApplications() {
     const res = await getPendingApplications();
     if (res.success) setApplications(res.applications);
+  }
+
+  async function refreshSaleRequests() {
+    const res = await getPendingSaleRequests();
+    if (res.success) setSaleRequests(res.saleRequests);
+  }
+
+  async function handleViewScreenshot(path) {
+    setScreenshotLoadingId(path);
+    const res = await getSignedScreenshotUrl(path);
+    setScreenshotLoadingId(null);
+    if (!res.success) {
+      alert(`Couldn't load screenshot: ${res.error}`);
+      return;
+    }
+    window.open(res.url, '_blank', 'noopener,noreferrer');
+  }
+
+  async function handleApproveSaleRequest(id) {
+    setSaleRequestActionId(id);
+    const res = await approveSaleRequest(id);
+    setSaleRequestActionId(null);
+    if (!res.success) {
+      alert(res.error);
+      return;
+    }
+    await refreshSaleRequests();
+  }
+
+  async function handleRejectSaleRequest(id) {
+    if (!confirm('Reject this sale request? No commission will be credited for it.')) return;
+    setSaleRequestActionId(id);
+    const res = await rejectSaleRequest(id);
+    setSaleRequestActionId(null);
+    if (!res.success) {
+      alert(res.error);
+      return;
+    }
+    await refreshSaleRequests();
   }
 
   async function refreshProducts() {
@@ -144,30 +145,25 @@ export default function AdminDashboard() {
     if (res.success) setSellers(res.applications);
   }
 
-  async function handleChangeSellerProduct(applicationId) {
-    const productId = sellerSelections[applicationId];
-    if (!productId) return;
-    setSellerActionId(applicationId);
-    const res = await adminSetAssignedProduct(applicationId, productId);
-    if (!res.success) alert(res.error);
-    await refreshSellers();
-    setSellerActionId(null);
+  async function refreshSellerProducts() {
+    const res = await getAllSellerProducts();
+    if (res.success) setSellerProducts(res.sellerProducts);
   }
 
-  async function handleApproveProductChange(applicationId, productId) {
-    setSellerActionId(applicationId);
-    const res = await approveProductChange(applicationId, productId);
+  async function handleApproveProductRequest(id) {
+    setRequestActionId(id);
+    const res = await approveProductRequest(id);
     if (!res.success) alert(res.error);
-    await refreshSellers();
-    setSellerActionId(null);
+    await refreshSellerProducts();
+    setRequestActionId(null);
   }
 
-  async function handleRejectProductChange(applicationId, currentAssignedProductId) {
-    setSellerActionId(applicationId);
-    const res = await rejectProductChange(applicationId, currentAssignedProductId);
+  async function handleRejectProductRequest(id) {
+    setRequestActionId(id);
+    const res = await rejectProductRequest(id);
     if (!res.success) alert(res.error);
-    await refreshSellers();
-    setSellerActionId(null);
+    await refreshSellerProducts();
+    setRequestActionId(null);
   }
 
   async function handleApprove(id) {
@@ -177,26 +173,17 @@ export default function AdminDashboard() {
       return;
     }
     setActionId(id);
-    const app = applications.find((a) => a.id === id);
     const res = await approveApplication(id, productId);
     if (!res.success) alert(res.error);
-    else if (user) {
-      await logAdminAction(user.id, user.full_name, 'approved_application', `Approved ${app?.full_name || 'a seller'}'s application`);
-      await refreshLogs();
-    }
     await refreshApplications();
     await refreshSellers();
+    await refreshSellerProducts();
     setActionId(null);
   }
 
   async function handleReject(id) {
     setActionId(id);
-    const app = applications.find((a) => a.id === id);
     await rejectApplication(id);
-    if (user) {
-      await logAdminAction(user.id, user.full_name, 'rejected_application', `Rejected ${app?.full_name || 'a seller'}'s application`);
-      await refreshLogs();
-    }
     await refreshApplications();
     setActionId(null);
   }
@@ -360,16 +347,68 @@ export default function AdminDashboard() {
       </header>
 
       <div className="page">
-        <h1>Seller applications</h1>
+        <h1>Admin dashboard</h1>
 
         <section className="stats-row">
           <div className="stat-card highlight">
             <span className="stat-label">Pending review</span>
             <span className="stat-value">{applications.length}</span>
           </div>
+          <div className="stat-card highlight">
+            <span className="stat-label">Sale requests to review</span>
+            <span className="stat-value">{saleRequests.length}</span>
+          </div>
         </section>
 
         <section className="panel">
+          <h2>Sale requests (payment screenshot approval)</h2>
+          {saleRequests.length === 0 ? (
+            <p className="empty-state">No sale requests waiting for review right now.</p>
+          ) : (
+            <div className="app-list">
+              {saleRequests.map((sr) => (
+                <div key={sr.id} className="app-row" style={{ flexWrap: 'wrap' }}>
+                  <div className="app-info">
+                    <strong>{sr.seller?.full_name || 'Unknown seller'}</strong>
+                    <span className="app-meta">
+                      Sold: {sr.product?.name || sr.product_id} · Rs. {Number(sr.price).toFixed(0)}
+                    </span>
+                    <span className="app-meta">
+                      Customer: {sr.customer_name}
+                      {sr.customer_phone ? ` · ${sr.customer_phone}` : ''}
+                    </span>
+                  </div>
+                  <button
+                    className="edit-btn"
+                    onClick={() => handleViewScreenshot(sr.payment_screenshot_path)}
+                    disabled={screenshotLoadingId === sr.payment_screenshot_path}
+                  >
+                    {screenshotLoadingId === sr.payment_screenshot_path ? 'Loading…' : '🖼️ View screenshot'}
+                  </button>
+                  <div className="app-actions">
+                    <button
+                      className="approve-btn"
+                      disabled={saleRequestActionId === sr.id}
+                      onClick={() => handleApproveSaleRequest(sr.id)}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="reject-btn"
+                      disabled={saleRequestActionId === sr.id}
+                      onClick={() => handleRejectSaleRequest(sr.id)}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="panel" style={{ marginTop: 20 }}>
+          <h2>Seller applications</h2>
           {applications.length === 0 ? (
             <p className="empty-state">No pending applications right now.</p>
           ) : (
@@ -432,67 +471,49 @@ export default function AdminDashboard() {
           ) : (
             <div className="app-list">
               {sellers.map((s) => {
-                const hasChangeRequest =
-                  s.requested_product_id && s.requested_product_id !== s.assigned_product_id;
-                const assignedProduct = products.find((p) => p.id === s.assigned_product_id);
-                const requestedProduct = products.find((p) => p.id === s.requested_product_id);
+                const rowsForSeller = sellerProducts.filter((sp) => sp.seller_id === s.user_id);
+                const approvedRows = rowsForSeller.filter((sp) => sp.status === 'Approved');
+                const pendingRows = rowsForSeller.filter((sp) => sp.status === 'Pending');
 
                 return (
-                  <div key={s.id} className="app-row">
+                  <div key={s.id} className="app-row" style={{ flexWrap: 'wrap' }}>
                     <div className="app-info">
                       <strong>{s.full_name}</strong>
                       <span className="app-meta">{s.city || 'City not given'}</span>
                       <span className="app-meta">
-                        Selling: {assignedProduct ? assignedProduct.name : 'Not assigned'}
+                        Selling:{' '}
+                        {approvedRows.length > 0
+                          ? approvedRows
+                              .map((sp) => products.find((p) => p.id === sp.product_id)?.name || sp.product_id)
+                              .join(', ')
+                          : 'Nothing approved yet'}
                       </span>
-                      {hasChangeRequest && (
-                        <span className="app-meta requested-tag">
-                          Wants to switch to: {requestedProduct ? requestedProduct.name : s.requested_product_id}
-                        </span>
-                      )}
                     </div>
 
-                    {hasChangeRequest ? (
-                      <div className="app-actions">
-                        <button
-                          className="approve-btn"
-                          disabled={sellerActionId === s.id}
-                          onClick={() => handleApproveProductChange(s.id, s.requested_product_id)}
-                        >
-                          Approve switch
-                        </button>
-                        <button
-                          className="reject-btn"
-                          disabled={sellerActionId === s.id}
-                          onClick={() => handleRejectProductChange(s.id, s.assigned_product_id)}
-                        >
-                          Keep current
-                        </button>
+                    {pendingRows.length > 0 && (
+                      <div className="app-actions" style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                        {pendingRows.map((sp) => (
+                          <div key={sp.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                            <span className="app-meta requested-tag">
+                              Wants to add: {products.find((p) => p.id === sp.product_id)?.name || sp.product_id}
+                            </span>
+                            <button
+                              className="approve-btn"
+                              disabled={requestActionId === sp.id}
+                              onClick={() => handleApproveProductRequest(sp.id)}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              className="reject-btn"
+                              disabled={requestActionId === sp.id}
+                              onClick={() => handleRejectProductRequest(sp.id)}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        ))}
                       </div>
-                    ) : (
-                      <>
-                        <select
-                          className="assign-select"
-                          value={sellerSelections[s.id] ?? s.assigned_product_id ?? ''}
-                          onChange={(e) =>
-                            setSellerSelections({ ...sellerSelections, [s.id]: e.target.value })
-                          }
-                        >
-                          <option value="">Not assigned</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name} (#{p.id})
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          className="edit-btn"
-                          disabled={sellerActionId === s.id}
-                          onClick={() => handleChangeSellerProduct(s.id)}
-                        >
-                          {sellerActionId === s.id ? 'Saving…' : 'Save'}
-                        </button>
-                      </>
                     )}
                   </div>
                 );
@@ -677,77 +698,6 @@ export default function AdminDashboard() {
             <code>commissions</code> tables directly in Supabase.
           </p>
         </section>
-
-        <div className="two-col">
-          <section className="panel">
-            <h2>Admins</h2>
-            <div className="admin-list">
-              {admins.map((a) => (
-                <div key={a.id} className="admin-row">
-                  <span>{a.full_name}</span>
-                  {a.id === user.id && <span className="badge badge-you">You</span>}
-                </div>
-              ))}
-            </div>
-
-            <h3>Add a new admin</h3>
-            {addAdminDone ? (
-              <p className="notice-box">
-                Admin created. For security, you've been logged out of the new account —
-                redirecting you back to login…
-              </p>
-            ) : (
-              <form onSubmit={handleCreateAdmin} className="add-admin-form">
-                <label>Full name</label>
-                <input value={newAdminName} onChange={(e) => setNewAdminName(e.target.value)} required />
-
-                <label>Email</label>
-                <input
-                  type="email"
-                  value={newAdminEmail}
-                  onChange={(e) => setNewAdminEmail(e.target.value)}
-                  required
-                />
-
-                <label>Temporary password</label>
-                <input
-                  type="password"
-                  value={newAdminPassword}
-                  onChange={(e) => setNewAdminPassword(e.target.value)}
-                  required
-                  minLength={6}
-                />
-
-                {addAdminError && <p className="error-text">{addAdminError}</p>}
-
-                <button className="approve-btn full-width" type="submit" disabled={creatingAdmin}>
-                  {creatingAdmin ? 'Creating…' : 'Create admin'}
-                </button>
-                <p className="hint-text">
-                  Note: creating an admin will briefly log you out — you'll need to log back in
-                  afterward.
-                </p>
-              </form>
-            )}
-          </section>
-
-          <section className="panel">
-            <h2>Activity log</h2>
-            <div className="log-list">
-              {logs.length === 0 && <p className="empty-state">No admin actions yet.</p>}
-              {logs.map((log) => (
-                <div key={log.id} className="log-row">
-                  <div>
-                    <strong>{log.admin_name}</strong>
-                    <span className="log-action"> — {log.action.replace(/_/g, ' ')}</span>
-                  </div>
-                  {log.details && <p className="log-details">{log.details}</p>}
-                  <span className="log-time">{new Date(log.created_at).toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        </div>
       </div>
 
       <style jsx>{`
@@ -866,107 +816,6 @@ export default function AdminDashboard() {
           background: white;
           border-radius: 14px;
           padding: 22px;
-          margin-bottom: 20px;
-        }
-
-        .two-col {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-        }
-
-        .admin-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-          margin-bottom: 8px;
-        }
-
-        .admin-row {
-          display: flex;
-          align-items: center;
-          padding: 8px 0;
-          border-bottom: 1px solid #eef2f2;
-          font-size: 14px;
-        }
-
-        .badge-you {
-          background: #dceaea;
-          color: #1f4e5f;
-          margin-left: 8px;
-        }
-
-        .add-admin-form label {
-          font-size: 13px;
-          font-weight: 600;
-          color: #4d5a5d;
-        }
-
-        .add-admin-form input {
-          width: 100%;
-          padding: 9px 12px;
-          margin: 4px 0 12px 0;
-          border: 1px solid #dceaea;
-          border-radius: 8px;
-          font-size: 14px;
-        }
-
-        .approve-btn.full-width {
-          width: 100%;
-          padding: 10px 16px;
-        }
-
-        .hint-text {
-          font-size: 12px;
-          color: #7a8a8d;
-          margin-top: 8px;
-        }
-
-        .notice-box {
-          background: #dceaea;
-          color: #1f4e5f;
-          padding: 14px;
-          border-radius: 10px;
-          font-size: 14px;
-        }
-
-        .log-list {
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          max-height: 420px;
-          overflow-y: auto;
-        }
-
-        .log-row {
-          padding: 10px 0;
-          border-bottom: 1px solid #eef2f2;
-        }
-
-        .log-row:last-child {
-          border-bottom: none;
-        }
-
-        .log-action {
-          color: #4d5a5d;
-          font-size: 14px;
-        }
-
-        .log-details {
-          font-size: 13px;
-          color: #7a8a8d;
-          margin: 4px 0 0;
-        }
-
-        .log-time {
-          font-size: 11px;
-          color: #a3b0b2;
-        }
-
-        @media (max-width: 720px) {
-          .two-col {
-            grid-template-columns: 1fr;
-          }
         }
 
         .app-list {

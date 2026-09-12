@@ -1,8 +1,17 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { getCurrentUser, signOut } from '../../lib/auth';
-import { getProducts, getCommissionSummary, getMyApplication, requestProductChange, placeOrder } from '../../lib/api';
+import {
+  getProducts,
+  getCommissionSummary,
+  getMyApplication,
+  getSellerProducts,
+  requestAddProduct,
+  uploadPaymentScreenshot,
+  requestSale,
+  getMySaleRequests,
+} from '../../lib/api';
 
 const CATEGORY_ICONS = {
   'Antivirus/Security': '🛡️',
@@ -10,19 +19,18 @@ const CATEGORY_ICONS = {
   'Mobile Data': '📶',
 };
 
-// Calls the server-side /api/ai-assistant route (Grok-powered, with a rule-based
-// fallback baked in server-side so this never throws during a live demo).
-async function getAIResponse(text, history, products, sellerName) {
-  try {
-    const res = await fetch('/api/ai-assistant', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, history, products, sellerName }),
-    });
-    const data = await res.json();
-    if (data.success && data.reply) return data.reply;
-  } catch (err) {
-    console.error('AI assistant request failed:', err);
+// Fallback response if the Grok API is unreachable or the key isn't set yet —
+// keeps the demo working even without internet/API access.
+function getFallbackResponse(text) {
+  const t = text.toLowerCase();
+  if (t.includes('kya bechna') || t.includes('what should i sell')) {
+    return 'Try SecureShield Antivirus (P001) — easiest to explain, and it pays 20% commission, the highest of all products.';
+  }
+  if (t.includes('antivirus') && (t.includes('explain') || t.includes('customer'))) {
+    return 'Tell the customer: "This protects your phone/computer from viruses for a full year, and takes 2 minutes to activate."';
+  }
+  if (t.includes('commission') && (t.includes('kab') || t.includes('when'))) {
+    return 'Commission is credited as soon as the order is confirmed in the system — no waiting period.';
   }
   return "I can help you pick a product, write a sales pitch, or explain commission. Try asking me 'what should I sell?'";
 }
@@ -30,131 +38,29 @@ async function getAIResponse(text, history, products, sellerName) {
 export default function EmployeeDashboard() {
   const router = useRouter();
   const [user, setUser] = useState(null);
-  // The ONE product this seller is assigned to sell (usually a single-item array).
-  const [products, setProducts] = useState([]);
-  const [allProducts, setAllProducts] = useState([]); // full catalog, used for the "switch product" picker
+  const [products, setProducts] = useState([]); // all of this seller's APPROVED products (can be many)
   const [summary, setSummary] = useState({ totalSales: 0, totalCommission: 0, totalFundContribution: 0 });
   const [messages, setMessages] = useState([
     { from: 'ai', text: "Hi! Ask me what you should sell, or how to explain a product to a customer." },
   ]);
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [application, setApplication] = useState(null);
   const [applicationStatus, setApplicationStatus] = useState(null); // 'Pending' | 'Approved' | 'Rejected' | null
+  const [application, setApplication] = useState(null);
+  const [allProducts, setAllProducts] = useState([]); // full catalog, used for the "add product" picker
+  const [sellerProducts, setSellerProducts] = useState({ approved: [], pending: [], rejected: [] });
+  const [addProductId, setAddProductId] = useState('');
+  const [addMsg, setAddMsg] = useState('');
+  const [adding, setAdding] = useState(false);
 
-  // Requesting a different assigned product
-  const [switchProductId, setSwitchProductId] = useState('');
-  const [switchMsg, setSwitchMsg] = useState('');
-  const [switching, setSwitching] = useState(false);
-
-  // Recording a walk-in / door-to-door sale
+  const [saleProductId, setSaleProductId] = useState('');
   const [saleCustomerName, setSaleCustomerName] = useState('');
   const [saleCustomerPhone, setSaleCustomerPhone] = useState('');
+  const [screenshotFile, setScreenshotFile] = useState(null);
+  const [screenshotPreview, setScreenshotPreview] = useState(null);
   const [recordingSale, setRecordingSale] = useState(false);
   const [saleMsg, setSaleMsg] = useState('');
-
-  // --- Voice (Web Speech API — browser-only, no external API/Twilio needed) ---
-  const [isListening, setIsListening] = useState(false);
-  const [voiceSupported, setVoiceSupported] = useState(false);
-  const recognitionRef = useRef(null);
-  const sendMessageRef = useRef(); // always points at the latest sendMessage closure, avoids stale state in the mic handler
-  const audioRef = useRef(null); // currently-playing ElevenLabs audio, if any
-
-  useEffect(() => {
-    // Speech recognition (mic → text) — Chrome/Edge only expose this as webkitSpeechRecognition.
-    const SpeechRecognition =
-      typeof window !== 'undefined' && (window.SpeechRecognition || window.webkitSpeechRecognition);
-
-    if (!SpeechRecognition) {
-      setVoiceSupported(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'ur-PK'; // Urdu (Pakistan) — falls back gracefully if unsupported by the browser
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(transcript);
-      sendMessageRef.current(null, transcript, true); // auto-send what was spoken, mark as voice turn
-    };
-
-    recognition.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
-      setIsListening(false);
-    };
-
-    recognition.onend = () => setIsListening(false);
-
-    recognitionRef.current = recognition;
-    setVoiceSupported(true);
-
-    return () => recognition.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function toggleMic() {
-    if (!voiceSupported || !recognitionRef.current) return;
-
-    if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-      return;
-    }
-
-    // Interrupt any AI speech currently playing before we start listening.
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current = null;
-    }
-    if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    setIsListening(true);
-    recognitionRef.current.start();
-  }
-
-  // Speaks the AI's reply out loud (text → voice). Tries ElevenLabs first (via our
-  // server route, so the API key stays secret) for natural-sounding audio; if that
-  // key isn't set or the request fails, falls back to the browser's built-in voice
-  // so this never breaks the demo.
-  async function speak(text) {
-    if (typeof window === 'undefined') return;
-
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-
-      if (res.ok) {
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audioRef.current = audio;
-        audio.onended = () => URL.revokeObjectURL(url);
-        await audio.play();
-        return; // ElevenLabs audio played successfully — done
-      }
-    } catch (err) {
-      console.error('ElevenLabs TTS failed, falling back to browser voice:', err);
-    }
-
-    // Fallback: browser SpeechSynthesis (no ElevenLabs key configured, or the call failed)
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voices = window.speechSynthesis.getVoices();
-    const urduVoice = voices.find((v) => v.lang?.toLowerCase().startsWith('ur'));
-    if (urduVoice) utterance.voice = urduVoice;
-    utterance.lang = urduVoice ? urduVoice.lang : 'en-US';
-    utterance.rate = 0.95;
-    window.speechSynthesis.speak(utterance);
-  }
+  const [saleRequests, setSaleRequests] = useState({ pending: [], approved: [], rejected: [] });
 
   useEffect(() => {
     async function load() {
@@ -177,32 +83,69 @@ export default function EmployeeDashboard() {
         return; // don't load products/commissions until approved
       }
 
-      // Sellers only ever sell the ONE product the Admin assigned them.
+      // Sellers can now hold as many Admin-approved products as they like.
       const productRes = await getProducts();
-      if (productRes.success) {
-        setAllProducts(productRes.products);
-        const assigned = productRes.products.filter((p) => p.id === app.assigned_product_id);
-        setProducts(assigned);
+      const sellerProdRes = await getSellerProducts(profile.id);
+      if (productRes.success) setAllProducts(productRes.products);
+      if (productRes.success && sellerProdRes.success) {
+        setSellerProducts(sellerProdRes);
+        const approvedIds = new Set(sellerProdRes.approved.map((r) => r.product_id));
+        // Fallback for sellers approved before this feature existed, whose first product
+        // may not yet have a seller_products row.
+        if (approvedIds.size === 0 && app.assigned_product_id) {
+          approvedIds.add(app.assigned_product_id);
+        }
+        setProducts(productRes.products.filter((p) => approvedIds.has(p.id)));
       }
 
       const summaryRes = await getCommissionSummary(profile.id);
       if (summaryRes.success) setSummary(summaryRes);
+
+      const saleRequestsRes = await getMySaleRequests(profile.id);
+      if (saleRequestsRes.success) setSaleRequests(saleRequestsRes);
 
       setLoading(false);
     }
     load();
   }, [router]);
 
+  const [aiTyping, setAiTyping] = useState(false);
+
+  useEffect(() => {
+    if (products.length === 1) setSaleProductId(products[0].id);
+    else if (products.length === 0) setSaleProductId('');
+  }, [products]);
+
+  function handleScreenshotChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScreenshotFile(file);
+    setScreenshotPreview(URL.createObjectURL(file));
+  }
+
   async function handleRecordSale(e) {
     e.preventDefault();
-    if (!saleCustomerName.trim() || !application?.assigned_product_id) return;
+    if (!saleCustomerName.trim() || !saleProductId || !screenshotFile) return;
 
     setRecordingSale(true);
     setSaleMsg('');
 
-    const res = await placeOrder(null, user.id, application.assigned_product_id, {
+    // 1. Upload the payment screenshot first — the sale request isn't created without it.
+    const uploadRes = await uploadPaymentScreenshot(user.id, screenshotFile);
+    if (!uploadRes.success) {
+      setRecordingSale(false);
+      setSaleMsg(`Error: ${uploadRes.error}`);
+      return;
+    }
+
+    // 2. Create a Pending sale request. No order or commission exists yet — that only
+    // happens once an Admin reviews the screenshot and approves it.
+    const res = await requestSale({
+      sellerId: user.id,
+      productId: saleProductId,
       customerName: saleCustomerName.trim(),
       customerPhone: saleCustomerPhone.trim(),
+      screenshotPath: uploadRes.path,
     });
 
     setRecordingSale(false);
@@ -212,60 +155,68 @@ export default function EmployeeDashboard() {
       return;
     }
 
-    setSaleMsg(`✅ Sale confirmed! You earned Rs. ${res.commission.seller_commission.toFixed(0)} commission.`);
+    setSaleMsg('✅ Sale request sent! Your commission will be added once the Admin approves the payment screenshot.');
     setSaleCustomerName('');
     setSaleCustomerPhone('');
+    setScreenshotFile(null);
+    setScreenshotPreview(null);
+    if (products.length > 1) setSaleProductId('');
 
-    // Refresh the commission summary so the stat cards update immediately.
-    const summaryRes = await getCommissionSummary(user.id);
-    if (summaryRes.success) setSummary(summaryRes);
+    // Refresh the pending list so it shows up immediately.
+    const saleRequestsRes = await getMySaleRequests(user.id);
+    if (saleRequestsRes.success) setSaleRequests(saleRequestsRes);
   }
 
-  async function handleRequestSwitch(e) {
+  async function handleAddProduct(e) {
     e.preventDefault();
-    if (!switchProductId || !application) return;
+    if (!addProductId || !user) return;
 
-    setSwitching(true);
-    setSwitchMsg('');
-    const res = await requestProductChange(application.id, switchProductId);
-    setSwitching(false);
+    setAdding(true);
+    setAddMsg('');
+    const res = await requestAddProduct(user.id, addProductId);
+    setAdding(false);
 
     if (!res.success) {
-      setSwitchMsg(`Error: ${res.error}`);
+      setAddMsg(`Error: ${res.error}`);
       return;
     }
-    setApplication(res.application);
-    setSwitchMsg('Request sent! Waiting for Admin approval.');
-    setSwitchProductId('');
+    setAddMsg('Request sent! Waiting for Admin approval.');
+    setAddProductId('');
+
+    const refreshed = await getSellerProducts(user.id);
+    if (refreshed.success) setSellerProducts(refreshed);
   }
 
-  // textOverride/isVoice let the mic handler trigger a send directly (with the
-  // freshly transcribed text) without waiting for a React state update + form submit.
-  async function sendMessage(e, textOverride, isVoice) {
-    if (e) e.preventDefault();
-    const text = (textOverride ?? input).trim();
-    if (!text || sending) return;
+  async function sendMessage(e) {
+    e.preventDefault();
+    if (!input.trim()) return;
 
-    const userMsg = { from: 'user', text };
-    let historyForApi = [];
-    // Functional update: always builds on the true latest messages, never a stale closure.
-    setMessages((prev) => {
-      historyForApi = [...prev, userMsg];
-      return historyForApi;
-    });
+    const userText = input;
+    const userMsg = { from: 'user', text: userText };
+    setMessages((prev) => [...prev, userMsg]);
     setInput('');
-    setSending(true);
+    setAiTyping(true);
 
-    const replyText = await getAIResponse(text, historyForApi, products, user?.full_name);
-    setMessages((prev) => [...prev, { from: 'ai', text: replyText }]);
-    setSending(false);
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userText,
+          products,
+          sellerName: user?.full_name,
+        }),
+      });
+      const data = await res.json();
 
-    if (isVoice) speak(replyText); // only auto-speak when the seller asked by voice
+      const replyText = res.ok ? data.reply : getFallbackResponse(userText);
+      setMessages((prev) => [...prev, { from: 'ai', text: replyText }]);
+    } catch (err) {
+      setMessages((prev) => [...prev, { from: 'ai', text: getFallbackResponse(userText) }]);
+    } finally {
+      setAiTyping(false);
+    }
   }
-
-  useEffect(() => {
-    sendMessageRef.current = sendMessage;
-  });
 
   if (loading) return <div className="loading-screen">Loading your dashboard…</div>;
 
@@ -402,9 +353,6 @@ export default function EmployeeDashboard() {
     );
   }
 
-  const hasChangeRequest =
-    application?.requested_product_id && application.requested_product_id !== application.assigned_product_id;
-
   return (
     <div className="dash">
       <Head>
@@ -447,11 +395,11 @@ export default function EmployeeDashboard() {
 
         <div className="content-grid">
           <section className="panel">
-            <h2>Your assigned product</h2>
+            <h2>Your products</h2>
             <div className="product-list">
               {products.length === 0 ? (
                 <p className="empty-state">
-                  No product assigned yet — contact the Admin to get a product assigned to you.
+                  No approved products yet — request one below, or contact the Admin.
                 </p>
               ) : (
                 products.map((p) => (
@@ -475,6 +423,20 @@ export default function EmployeeDashboard() {
               <div className="record-sale-box">
                 <p className="switch-label">Just sold to a customer? Confirm it here:</p>
                 <form onSubmit={handleRecordSale} className="record-sale-form">
+                  {products.length > 1 && (
+                    <select
+                      value={saleProductId}
+                      onChange={(e) => setSaleProductId(e.target.value)}
+                      required
+                    >
+                      <option value="">Which product?</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <input
                     placeholder="Customer name"
                     value={saleCustomerName}
@@ -486,52 +448,70 @@ export default function EmployeeDashboard() {
                     value={saleCustomerPhone}
                     onChange={(e) => setSaleCustomerPhone(e.target.value)}
                   />
+                  <label className="screenshot-label">
+                    Payment screenshot (required)
+                    <input type="file" accept="image/*" onChange={handleScreenshotChange} required />
+                  </label>
+                  {screenshotPreview && (
+                    <img src={screenshotPreview} alt="Payment screenshot preview" className="screenshot-preview" />
+                  )}
                   <button
-                    className="confirm-sale-btn"
+                    className="approve-btn"
                     type="submit"
-                    disabled={recordingSale || !saleCustomerName.trim()}
+                    disabled={
+                      recordingSale || !saleCustomerName.trim() || !saleProductId || !screenshotFile
+                    }
                   >
-                    {recordingSale ? 'Confirming…' : '✅ Confirm sale'}
+                    {recordingSale ? 'Sending…' : '✅ Confirm sale'}
                   </button>
                 </form>
                 {saleMsg && <p className="switch-msg">{saleMsg}</p>}
+
+                {saleRequests.pending.length > 0 && (
+                  <p className="pending-note" style={{ marginTop: 10 }}>
+                    ⏳ Waiting for Admin approval: {saleRequests.pending.length} sale
+                    {saleRequests.pending.length > 1 ? 's' : ''} (Rs.{' '}
+                    {saleRequests.pending.reduce((sum, r) => sum + Number(r.price), 0).toFixed(0)} total)
+                  </p>
+                )}
+              </div>
+            )}
+
+            {sellerProducts.pending.length > 0 && (
+              <div className="switch-box">
+                <p className="pending-note">
+                  ⏳ Waiting for Admin approval:{' '}
+                  <strong>
+                    {sellerProducts.pending
+                      .map((r) => allProducts.find((p) => p.id === r.product_id)?.name || r.product_id)
+                      .join(', ')}
+                  </strong>
+                </p>
               </div>
             )}
 
             <div className="switch-box">
-              {hasChangeRequest ? (
-                <p className="pending-note">
-                  ⏳ Your request to switch to{' '}
-                  <strong>
-                    {allProducts.find((p) => p.id === application.requested_product_id)?.name ||
-                      application.requested_product_id}
-                  </strong>{' '}
-                  is waiting for Admin approval.
-                </p>
-              ) : (
-                <>
-                  <p className="switch-label">Want to sell something else?</p>
-                  <form onSubmit={handleRequestSwitch} className="switch-form">
-                    <select
-                      value={switchProductId}
-                      onChange={(e) => setSwitchProductId(e.target.value)}
-                    >
-                      <option value="">Choose a different product…</option>
-                      {allProducts
-                        .filter((p) => p.id !== application?.assigned_product_id)
-                        .map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} — Rs. {p.price}
-                          </option>
-                        ))}
-                    </select>
-                    <button className="edit-btn" type="submit" disabled={switching || !switchProductId}>
-                      {switching ? 'Sending…' : 'Request switch'}
-                    </button>
-                  </form>
-                  {switchMsg && <p className="switch-msg">{switchMsg}</p>}
-                </>
-              )}
+              <p className="switch-label">Want to sell something else too?</p>
+              <form onSubmit={handleAddProduct} className="switch-form">
+                <select value={addProductId} onChange={(e) => setAddProductId(e.target.value)}>
+                  <option value="">Choose a product…</option>
+                  {allProducts
+                    .filter(
+                      (p) =>
+                        !products.some((owned) => owned.id === p.id) &&
+                        !sellerProducts.pending.some((r) => r.product_id === p.id)
+                    )
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} — Rs. {p.price}
+                      </option>
+                    ))}
+                </select>
+                <button className="edit-btn" type="submit" disabled={adding || !addProductId}>
+                  {adding ? 'Sending…' : 'Request product'}
+                </button>
+              </form>
+              {addMsg && <p className="switch-msg">{addMsg}</p>}
             </div>
           </section>
 
@@ -543,41 +523,19 @@ export default function EmployeeDashboard() {
                   {m.text}
                 </div>
               ))}
-              {sending && (
-                <div className="chat-message ai typing">Typing…</div>
-              )}
+              {aiTyping && <div className="chat-message ai typing">Thinking…</div>}
             </div>
             <form onSubmit={sendMessage} className="chat-input-row">
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder={isListening ? 'Listening…' : 'e.g. what should I sell?'}
-                disabled={sending || isListening}
+                placeholder="e.g. what should I sell?"
+                disabled={aiTyping}
               />
-              <button
-                type="button"
-                className={`mic-btn ${isListening ? 'listening' : ''}`}
-                onClick={toggleMic}
-                disabled={!voiceSupported || sending}
-                title={
-                  voiceSupported
-                    ? isListening
-                      ? 'Stop listening'
-                      : 'Ask by voice'
-                    : 'Voice input not supported in this browser — please type instead'
-                }
-              >
-                {isListening ? '⏹' : '🎤'}
-              </button>
-              <button className="send-btn" type="submit" disabled={sending}>
-                {sending ? '…' : 'Send'}
+              <button className="send-btn" type="submit" disabled={aiTyping}>
+                {aiTyping ? '…' : 'Send'}
               </button>
             </form>
-            {!voiceSupported && (
-              <p className="voice-note">
-                Voice isn't supported in this browser — try Chrome or Edge, or keep typing.
-              </p>
-            )}
           </section>
         </div>
       </div>
@@ -738,21 +696,6 @@ export default function EmployeeDashboard() {
           flex-shrink: 0;
         }
 
-        .product-info {
-          display: flex;
-          flex-direction: column;
-          flex-grow: 1;
-        }
-
-        .product-meta {
-          font-size: 12px;
-          color: #7a8a8d;
-        }
-
-        .product-price {
-          font-weight: 600;
-        }
-
         .empty-state {
           color: #7a8a8d;
           font-size: 14px;
@@ -781,7 +724,28 @@ export default function EmployeeDashboard() {
           font-size: 14px;
         }
 
-        .confirm-sale-btn {
+        .screenshot-label {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          font-size: 12px;
+          color: #6b7878;
+          flex-basis: 100%;
+        }
+
+        .screenshot-label input {
+          font-size: 13px;
+        }
+
+        .screenshot-preview {
+          width: 90px;
+          height: 90px;
+          object-fit: cover;
+          border-radius: 8px;
+          border: 1px solid #dde5e5;
+        }
+
+        .approve-btn {
           background: #2f7a4f;
           color: white;
           border: none;
@@ -793,7 +757,7 @@ export default function EmployeeDashboard() {
           white-space: nowrap;
         }
 
-        .confirm-sale-btn:disabled {
+        .approve-btn:disabled {
           opacity: 0.6;
           cursor: not-allowed;
         }
@@ -854,6 +818,21 @@ export default function EmployeeDashboard() {
           border-radius: 8px;
         }
 
+        .product-info {
+          display: flex;
+          flex-direction: column;
+          flex-grow: 1;
+        }
+
+        .product-meta {
+          font-size: 12px;
+          color: #7a8a8d;
+        }
+
+        .product-price {
+          font-weight: 600;
+        }
+
         .chat-box {
           border: 1px solid #dceaea;
           border-radius: 12px;
@@ -884,9 +863,9 @@ export default function EmployeeDashboard() {
           color: #1a2e33;
         }
 
-        .chat-message.ai.typing {
+        .chat-message.typing {
           font-style: italic;
-          color: #5c7274;
+          opacity: 0.7;
         }
 
         .chat-input-row {
@@ -900,39 +879,6 @@ export default function EmployeeDashboard() {
           border: 1px solid #dceaea;
           border-radius: 8px;
           font-size: 14px;
-        }
-
-        .mic-btn {
-          background: #f2f6f3;
-          border: 1px solid #dceaea;
-          border-radius: 8px;
-          padding: 0 14px;
-          cursor: pointer;
-          font-size: 16px;
-        }
-
-        .mic-btn:disabled {
-          opacity: 0.4;
-          cursor: not-allowed;
-        }
-
-        .mic-btn.listening {
-          background: #e05252;
-          border-color: #e05252;
-          color: white;
-          animation: pulse 1.2s infinite;
-        }
-
-        @keyframes pulse {
-          0% { box-shadow: 0 0 0 0 rgba(224, 82, 82, 0.5); }
-          70% { box-shadow: 0 0 0 8px rgba(224, 82, 82, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(224, 82, 82, 0); }
-        }
-
-        .voice-note {
-          margin: 8px 0 0 0;
-          font-size: 12px;
-          color: #7a8a8d;
         }
 
         .send-btn {

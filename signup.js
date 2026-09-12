@@ -15,7 +15,6 @@ export default function Signup() {
   const [products, setProducts] = useState([]);
   const [requestedProductId, setRequestedProductId] = useState('');
   const [error, setError] = useState('');
-  const [alreadyExists, setAlreadyExists] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -29,7 +28,6 @@ export default function Signup() {
   async function handleSignup(e) {
     e.preventDefault();
     setError('');
-    setAlreadyExists(false);
 
     if (role === 'employee' && !requestedProductId) {
       setError('Please choose which product you want to sell.');
@@ -43,7 +41,6 @@ export default function Signup() {
     if (!result.success) {
       setLoading(false);
       setError(result.error);
-      setAlreadyExists(!!result.alreadyExists);
       return;
     }
 
@@ -60,8 +57,7 @@ export default function Signup() {
 
     setLoading(false);
 
-    if (role === 'admin') router.push('/admin');
-    else if (role === 'employee') router.push('/employee');
+    if (role === 'employee') router.push('/employee');
     else router.push('/'); // customers land on the shop (home page)
   }
 
@@ -128,17 +124,7 @@ export default function Signup() {
               </>
             )}
 
-            {error && (
-              <p className="error-text">
-                {error}
-                {alreadyExists && (
-                  <>
-                    {' '}
-                    <Link href="/login">Log in here</Link>
-                  </>
-                )}
-              </p>
-            )}
+            {error && <p className="error-text">{error}</p>}
 
             <button className="btn" type="submit" disabled={loading}>
               {loading ? 'Creating account...' : 'Sign up'}

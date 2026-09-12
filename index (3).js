@@ -13,22 +13,6 @@ const CATEGORY_ICONS = {
   'Mobile Data': '📶',
 };
 
-// Plain DOM-level pointer tilt — no React state, so it stays smooth at 60fps
-// and never re-renders the tree while the cursor moves.
-function handleCardMove(e) {
-  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-  const card = e.currentTarget;
-  const rect = card.getBoundingClientRect();
-  const px = (e.clientX - rect.left) / rect.width;
-  const py = (e.clientY - rect.top) / rect.height;
-  const rotateY = (px - 0.5) * 12;
-  const rotateX = (0.5 - py) * 12;
-  card.style.transform = `perspective(800px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-6px) scale(1.015)`;
-}
-function handleCardLeave(e) {
-  e.currentTarget.style.transform = '';
-}
-
 export default function CustomerDashboard() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -82,68 +66,31 @@ export default function CustomerDashboard() {
     if (cart.length === 0) return;
     setCheckoutState('processing');
 
+    const sellerRes = await getApprovedSellers();
+    if (!sellerRes.success || sellerRes.sellers.length === 0) {
+      setCheckoutState('idle');
+      alert('No approved sellers available yet — check back soon.');
+      return;
+    }
+    const seller = sellerRes.sellers[0];
+
     const newOrders = [];
-    const failedIndexes = [];
-    const failureReasons = [];
     let impact = 0;
     // Guests (no login) place orders with customer_id = null — still works fine,
     // the order/commission math doesn't depend on who the customer is.
     const customerId = user?.id ?? null;
-
-    // Each seller now specializes in exactly ONE assigned product, so we look up
-    // (and randomly pick among) the sellers assigned to THIS specific item —
-    // not just "any approved seller." Cached per product in case the cart has
-    // more than one of the same item.
-    const sellersByProduct = {};
-
-    for (let i = 0; i < cart.length; i++) {
-      const item = cart[i];
-
-      if (!sellersByProduct[item.id]) {
-        const sellerRes = await getApprovedSellers(item.id);
-        sellersByProduct[item.id] = sellerRes.success ? sellerRes.sellers : [];
-      }
-      const candidateSellers = sellersByProduct[item.id];
-
-      if (candidateSellers.length === 0) {
-        failedIndexes.push(i);
-        failureReasons.push(`${item.name} (no seller assigned to this product yet)`);
-        continue;
-      }
-
-      // Randomly assign a matching seller per order so orders (and the
-      // commission that comes with them) get spread across everyone who's
-      // approved for this product, instead of always going to the same one.
-      const seller = candidateSellers[Math.floor(Math.random() * candidateSellers.length)];
+    for (const item of cart) {
       const orderRes = await placeOrder(customerId, seller.id, item.id);
       if (orderRes.success) {
         newOrders.push({ ...orderRes.order, productName: item.name });
         impact += Number(orderRes.commission.education_fund_amount);
-      } else {
-        console.error(`Order failed for ${item.name}:`, orderRes.error);
-        failedIndexes.push(i);
-        failureReasons.push(item.name);
       }
-    }
-
-    if (newOrders.length === 0) {
-      // Nothing went through — keep the cart intact so the customer can retry.
-      setCheckoutState('idle');
-      alert("Sorry, we couldn't place your order right now. Please try again in a moment.");
-      return;
     }
 
     setOrderHistory([...newOrders, ...orderHistory]);
     setLastOrderImpact(impact);
-    // Only clear the items that actually succeeded — leave any failed ones in the
-    // cart (matched by position) so the customer doesn't lose their spot and can retry.
-    const stillInCart = cart.filter((_, i) => failedIndexes.includes(i));
-    setCart(stillInCart);
+    setCart([]);
     setCheckoutState('done');
-
-    if (stillInCart.length > 0) {
-      alert(`Everything else went through, but these items couldn't be ordered and are still in your cart: ${failureReasons.join(', ')}`);
-    }
   }
 
   function closeReceipt() {
@@ -158,7 +105,7 @@ export default function CustomerDashboard() {
       <Head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
-          href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap"
           rel="stylesheet"
         />
       </Head>
@@ -193,19 +140,12 @@ export default function CustomerDashboard() {
             building an income — and a slice of each sale goes straight to the education fund.
           </p>
         </div>
-        <div className="hero-scene" aria-hidden="true">
-          <div className="floatie f1">🛡️</div>
-          <div className="floatie f2">🎓</div>
-          <div className="floatie f3">📶</div>
-          <svg className="hero-ring" viewBox="0 0 200 200" width="200" height="200">
-            <defs>
-              <radialGradient id="ringGlow" cx="50%" cy="35%" r="65%">
-                <stop offset="0%" stopColor="#3d7a91" stopOpacity="0.55" />
-                <stop offset="100%" stopColor="#3d7a91" stopOpacity="0" />
-              </radialGradient>
-            </defs>
-            <circle cx="100" cy="100" r="94" fill="url(#ringGlow)" />
-            <circle cx="100" cy="100" r="70" fill="none" stroke="rgba(220,234,234,0.25)" strokeWidth="1.5" strokeDasharray="3 7" />
+        <div className="hero-mark" aria-hidden="true">
+          <svg viewBox="0 0 200 200" width="180" height="180">
+            <circle cx="100" cy="100" r="92" fill="#DCEAEA" />
+            <path d="M60 96 L100 72 L140 96 L100 120 Z" fill="#1F4E5F" />
+            <rect x="94" y="118" width="12" height="34" rx="3" fill="#1F4E5F" />
+            <circle cx="140" cy="96" r="6" fill="#E8A33D" />
           </svg>
         </div>
       </section>
@@ -227,30 +167,20 @@ export default function CustomerDashboard() {
         {visibleProducts.map((p) => {
           const fundShare = (p.price * FUND_RATE_DISPLAY).toFixed(0);
           return (
-            <article
-              key={p.id}
-              className="product-card"
-              onMouseMove={handleCardMove}
-              onMouseLeave={handleCardLeave}
-            >
-              <div className="product-card-inner">
-                {p.image_url ? (
-                  <img src={p.image_url} alt={p.name} className="product-image" />
-                ) : (
-                  <div className="product-icon">{CATEGORY_ICONS[p.category] || '🛒'}</div>
-                )}
-                <span className="product-category">{p.category}</span>
-                <h3>{p.name}</h3>
-                <p className="product-desc">{p.description}</p>
-                <div className="product-footer">
-                  <span className="price">Rs. {p.price}</span>
-                  <button className="add-btn" onClick={() => addToCart(p)}>Add to cart</button>
-                </div>
-                <div className="impact-coin">
-                  <span className="coin-icon" />
-                  ≈ Rs. {fundShare} to the education fund
-                </div>
+            <article key={p.id} className="product-card">
+              {p.image_url ? (
+                <img src={p.image_url} alt={p.name} className="product-image" />
+              ) : (
+                <div className="product-icon">{CATEGORY_ICONS[p.category] || '🛒'}</div>
+              )}
+              <span className="product-category">{p.category}</span>
+              <h3>{p.name}</h3>
+              <p className="product-desc">{p.description}</p>
+              <div className="product-footer">
+                <span className="price">Rs. {p.price}</span>
+                <button className="add-btn" onClick={() => addToCart(p)}>Add to cart</button>
               </div>
+              <p className="impact-line">≈ Rs. {fundShare} of this goes to the education fund</p>
             </article>
           );
         })}
@@ -281,7 +211,6 @@ export default function CustomerDashboard() {
       <aside className={`cart-drawer ${cartOpen ? 'open' : ''}`}>
         {checkoutState === 'done' ? (
           <div className="receipt-confirm">
-            <div className="seal">✓</div>
             <h2>Order confirmed</h2>
             <p>Thanks for your purchase.</p>
             <p className="impact-highlight">Rs. {lastOrderImpact.toFixed(0)} of this order goes toward the education fund.</p>
@@ -335,17 +264,8 @@ export default function CustomerDashboard() {
 
       <style jsx>{`
         .shop {
-          --ink: #14313d;
-          --teal: #1f4e5f;
-          --teal-deep: #163947;
-          --teal-mist: #dceaea;
-          --paper: #f2f6f3;
-          --amber: #e8a33d;
-          --amber-light: #f0b158;
-          --amber-deep: #c67f22;
-          --amber-shadow: #a9691a;
           font-family: 'Inter', -apple-system, sans-serif;
-          background: var(--paper);
+          background: #f2f6f3;
           min-height: 100vh;
           color: #22282a;
         }
@@ -358,22 +278,15 @@ export default function CustomerDashboard() {
 
         h1, h2, h3 {
           font-family: 'Fraunces', serif;
-          color: var(--teal);
+          color: #1f4e5f;
           margin: 0 0 12px 0;
         }
 
-        button:focus-visible,
-        a:focus-visible {
-          outline: 2px solid var(--amber-deep);
-          outline-offset: 2px;
-        }
-
         .shop-nav {
-          background: var(--teal);
+          background: #1f4e5f;
           position: sticky;
           top: 0;
           z-index: 20;
-          box-shadow: 0 4px 16px rgba(20, 49, 61, 0.25);
         }
 
         .shop-nav-inner {
@@ -399,33 +312,26 @@ export default function CustomerDashboard() {
         }
 
         .user-name {
-          color: var(--teal-mist);
+          color: #dceaea;
           font-size: 14px;
         }
 
         .cart-btn {
           position: relative;
           background: white;
-          color: var(--teal);
+          color: #1f4e5f;
           border: none;
           padding: 8px 18px;
           border-radius: 8px;
           font-weight: 600;
           cursor: pointer;
-          box-shadow: 0 2px 0 rgba(20, 49, 61, 0.15), 0 4px 10px rgba(0, 0, 0, 0.15);
-          transition: transform 0.08s ease, box-shadow 0.08s ease;
-        }
-
-        .cart-btn:active {
-          transform: translateY(2px);
-          box-shadow: 0 0 0 rgba(20, 49, 61, 0.15), 0 2px 4px rgba(0, 0, 0, 0.15);
         }
 
         .cart-count {
           position: absolute;
           top: -8px;
           right: -8px;
-          background: linear-gradient(155deg, var(--amber-light), var(--amber-deep));
+          background: #e8a33d;
           color: white;
           border-radius: 999px;
           font-size: 12px;
@@ -434,7 +340,6 @@ export default function CustomerDashboard() {
           display: flex;
           align-items: center;
           justify-content: center;
-          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
         }
 
         .link-btn {
@@ -453,26 +358,15 @@ export default function CustomerDashboard() {
 
         .hero {
           max-width: 1080px;
-          margin: 32px auto 36px;
-          padding: 48px 44px;
-          border-radius: 28px;
-          background: linear-gradient(155deg, var(--teal) 0%, var(--teal-deep) 100%);
-          box-shadow: 0 24px 50px -14px rgba(20, 49, 61, 0.5), 0 2px 6px rgba(20, 49, 61, 0.3);
+          margin: 0 auto;
+          padding: 56px 24px 32px;
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 40px;
-          position: relative;
-          overflow: hidden;
-        }
-
-        .hero-text {
-          position: relative;
-          z-index: 2;
+          gap: 32px;
         }
 
         .hero-text h1 {
-          color: white;
           font-size: 34px;
           line-height: 1.25;
           font-weight: 600;
@@ -483,64 +377,11 @@ export default function CustomerDashboard() {
           max-width: 460px;
           font-size: 16px;
           line-height: 1.6;
-          color: #cfe3e3;
+          color: #445055;
         }
 
-        .hero-scene {
-          position: relative;
-          width: 200px;
-          height: 200px;
+        .hero-mark {
           flex-shrink: 0;
-        }
-
-        .hero-ring {
-          position: absolute;
-          top: 0;
-          left: 0;
-        }
-
-        .floatie {
-          position: absolute;
-          width: 58px;
-          height: 58px;
-          border-radius: 16px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 26px;
-          box-shadow: 0 14px 26px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-          animation: floaty 5.5s ease-in-out infinite;
-          z-index: 2;
-        }
-
-        .floatie.f1 {
-          top: 6px;
-          left: 34px;
-          background: linear-gradient(155deg, #3d7a91, var(--teal));
-          animation-delay: 0s;
-        }
-
-        .floatie.f2 {
-          top: 66px;
-          left: 122px;
-          background: linear-gradient(155deg, var(--amber-light), var(--amber-deep));
-          animation-delay: 1.1s;
-        }
-
-        .floatie.f3 {
-          top: 128px;
-          left: 24px;
-          background: linear-gradient(155deg, #7fb8a8, #3d8570);
-          animation-delay: 2.2s;
-        }
-
-        @keyframes floaty {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-12px); }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .floatie { animation: none; }
         }
 
         .categories {
@@ -553,62 +394,36 @@ export default function CustomerDashboard() {
         }
 
         .chip {
-          background: linear-gradient(180deg, #ffffff, #eef4f3);
-          border: 1px solid var(--teal-mist);
-          padding: 9px 18px;
+          background: white;
+          border: 1px solid #dceaea;
+          padding: 8px 16px;
           border-radius: 999px;
           font-size: 14px;
           cursor: pointer;
           color: #22282a;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 2px 5px rgba(20, 49, 61, 0.08);
-          transition: transform 0.12s ease, box-shadow 0.12s ease;
-        }
-
-        .chip:hover {
-          transform: translateY(-2px);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 6px 12px rgba(20, 49, 61, 0.14);
         }
 
         .chip-active {
-          background: linear-gradient(180deg, #2a6178, var(--teal));
+          background: #1f4e5f;
           color: white;
-          border-color: var(--teal);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), 0 6px 14px rgba(20, 49, 61, 0.35);
+          border-color: #1f4e5f;
         }
 
         .product-grid {
           max-width: 1080px;
           margin: 0 auto;
-          padding: 8px 24px 48px;
+          padding: 0 24px 48px;
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-          gap: 26px;
+          gap: 18px;
         }
 
         .product-card {
-          border-radius: 18px;
-          background: linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%);
-          box-shadow:
-            0 1px 2px rgba(20, 49, 61, 0.06),
-            0 8px 16px rgba(20, 49, 61, 0.08),
-            0 26px 40px -16px rgba(20, 49, 61, 0.22);
-          transition: transform 0.15s ease, box-shadow 0.15s ease;
-          transform-style: preserve-3d;
-          will-change: transform;
-        }
-
-        .product-card:hover {
-          box-shadow:
-            0 2px 4px rgba(20, 49, 61, 0.08),
-            0 14px 24px rgba(20, 49, 61, 0.12),
-            0 34px 56px -16px rgba(20, 49, 61, 0.3);
-        }
-
-        .product-card-inner {
+          background: white;
+          border-radius: 14px;
           padding: 22px;
           display: flex;
           flex-direction: column;
-          height: 100%;
         }
 
         .product-icon {
@@ -646,7 +461,6 @@ export default function CustomerDashboard() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 14px;
         }
 
         .price {
@@ -655,31 +469,23 @@ export default function CustomerDashboard() {
         }
 
         .add-btn {
-          background: linear-gradient(180deg, var(--amber-light) 0%, var(--amber) 45%, var(--amber-deep) 100%);
+          background: #e8a33d;
           color: white;
           border: none;
-          padding: 10px 18px;
-          border-radius: 10px;
+          padding: 9px 16px;
+          border-radius: 8px;
           font-weight: 600;
           cursor: pointer;
           font-size: 14px;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 3px 0 var(--amber-shadow), 0 6px 12px rgba(198, 127, 34, 0.35);
-          transition: transform 0.08s ease, box-shadow 0.08s ease;
         }
 
         .add-btn:hover {
-          filter: brightness(1.03);
-        }
-
-        .add-btn:active {
-          transform: translateY(3px);
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 0 var(--amber-shadow), 0 2px 4px rgba(198, 127, 34, 0.3);
+          background: #d1912f;
         }
 
         .add-btn:disabled {
           opacity: 0.6;
           cursor: default;
-          transform: none;
         }
 
         .full-width {
@@ -687,28 +493,11 @@ export default function CustomerDashboard() {
           margin-top: 12px;
         }
 
-        .impact-coin {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          align-self: flex-start;
-          background: linear-gradient(145deg, #fff6e6, #f3d9a6);
-          border: 1px solid #e8c078;
-          color: #8a5d1f;
-          padding: 5px 10px 5px 6px;
-          border-radius: 999px;
+        .impact-line {
           font-size: 12px;
-          font-weight: 600;
-          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 1px 2px rgba(138, 93, 31, 0.25);
-        }
-
-        .coin-icon {
-          width: 15px;
-          height: 15px;
-          border-radius: 50%;
-          flex-shrink: 0;
-          background: radial-gradient(circle at 35% 30%, #ffe9b8, var(--amber) 60%, var(--amber-shadow));
-          box-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+          color: #1f4e5f;
+          margin-top: 10px;
+          margin-bottom: 0;
         }
 
         .order-history {
@@ -719,9 +508,8 @@ export default function CustomerDashboard() {
 
         .receipts {
           background: white;
-          border-radius: 16px;
+          border-radius: 14px;
           padding: 8px 20px;
-          box-shadow: 0 8px 20px -8px rgba(20, 49, 61, 0.18);
         }
 
         .receipt {
@@ -748,7 +536,7 @@ export default function CustomerDashboard() {
         .cart-overlay {
           position: fixed;
           inset: 0;
-          background: rgba(20, 49, 61, 0.4);
+          background: rgba(0, 0, 0, 0.3);
           opacity: 0;
           pointer-events: none;
           transition: opacity 0.2s;
@@ -767,8 +555,8 @@ export default function CustomerDashboard() {
           width: 360px;
           max-width: 90vw;
           height: 100vh;
-          background: var(--paper);
-          box-shadow: -8px 0 30px rgba(20, 49, 61, 0.25);
+          background: #f2f6f3;
+          box-shadow: -4px 0 20px rgba(0, 0, 0, 0.1);
           padding: 28px 24px;
           transition: right 0.25s ease;
           z-index: 31;
@@ -791,7 +579,7 @@ export default function CustomerDashboard() {
           justify-content: space-between;
           align-items: center;
           padding: 12px 0;
-          border-bottom: 1px solid var(--teal-mist);
+          border-bottom: 1px solid #dceaea;
         }
 
         .cart-item-price {
@@ -801,7 +589,7 @@ export default function CustomerDashboard() {
 
         .cart-summary {
           margin-top: 20px;
-          border-top: 1px solid var(--teal-mist);
+          border-top: 1px solid #dceaea;
           padding-top: 16px;
         }
 
@@ -813,32 +601,18 @@ export default function CustomerDashboard() {
         }
 
         .impact-row {
-          color: var(--teal);
+          color: #1f4e5f;
           font-weight: 600;
         }
 
         .receipt-confirm {
           text-align: center;
-          padding-top: 24px;
-        }
-
-        .seal {
-          width: 64px;
-          height: 64px;
-          margin: 0 auto 18px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 28px;
-          color: white;
-          background: radial-gradient(circle at 35% 30%, #7fd6a8, #2e9c62 65%, #1f7a4a);
-          box-shadow: 0 10px 20px rgba(46, 156, 98, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.3);
+          padding-top: 40px;
         }
 
         .impact-highlight {
-          background: var(--teal-mist);
-          color: var(--teal);
+          background: #dceaea;
+          color: #1f4e5f;
           font-weight: 600;
           padding: 14px;
           border-radius: 10px;
@@ -849,9 +623,8 @@ export default function CustomerDashboard() {
           .hero {
             flex-direction: column;
             align-items: flex-start;
-            padding: 36px 28px;
           }
-          .hero-scene {
+          .hero-mark {
             align-self: center;
           }
         }

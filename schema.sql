@@ -1,7 +1,5 @@
 -- Rozgar Supabase Schema
 -- Paste this into Supabase Dashboard > SQL Editor > New Query > Run
--- (Fresh install only. If you already have a Rozgar database, use the two
--- schema-*-fix.sql migration files instead — they're safe to re-run.)
 
 -- USERS (extends Supabase auth.users with role + profile info)
 create table users (
@@ -22,18 +20,16 @@ create table products (
   image_url text                     -- public URL from the 'product-images' storage bucket
 );
 
--- APPLICATIONS (sellers applying to become employees — each seller specializes
--- in exactly ONE product: requested at signup, assigned by Admin at approval,
--- changeable later via a request/approve flow)
+-- APPLICATIONS (sellers applying to become employees)
 create table applications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references users(id),
   full_name text not null,
   city text,
   ngo_reference text,
+  status text not null default 'Pending' check (status in ('Pending','Approved','Rejected')),
   requested_product_id text references products(id), -- what the seller asked to sell
   assigned_product_id text references products(id),  -- what the Admin actually approved (usually the same)
-  status text not null default 'Pending' check (status in ('Pending','Approved','Rejected')),
   created_at timestamp with time zone default now()
 );
 
@@ -41,11 +37,11 @@ create table applications (
 create table orders (
   id uuid primary key default gen_random_uuid(),
   customer_id uuid references users(id),
+  customer_name text,   -- for door-to-door sales where the customer has no account
+  customer_phone text,
   seller_id uuid references users(id),
   product_id text references products(id),
   price numeric not null,
-  customer_name text,   -- for door-to-door sales where the customer has no account
-  customer_phone text,
   created_at timestamp with time zone default now()
 );
 
@@ -59,13 +55,28 @@ create table commissions (
   created_at timestamp with time zone default now()
 );
 
--- ADMIN LOGS (every admin action, visible to all admins)
-create table admin_logs (
+-- SELLER_PRODUCTS (a seller can request to sell as many products as they like;
+-- each request needs Admin approval before it counts as "assigned" to that seller)
+create table seller_products (
   id uuid primary key default gen_random_uuid(),
-  admin_id uuid references users(id),
-  admin_name text not null,
-  action text not null,          -- e.g. 'approved_application', 'rejected_application', 'created_admin'
-  details text,
+  seller_id uuid references users(id) on delete cascade,
+  product_id text references products(id),
+  status text not null default 'Pending' check (status in ('Pending','Approved','Rejected')),
+  created_at timestamp with time zone default now()
+);
+
+-- SALE_REQUESTS (a seller records a sale with proof-of-payment; the order + commission
+-- are only created once an Admin reviews the screenshot and approves the request)
+create table sale_requests (
+  id uuid primary key default gen_random_uuid(),
+  seller_id uuid references users(id) on delete cascade,
+  product_id text references products(id),
+  customer_name text not null,
+  customer_phone text,
+  price numeric not null,                 -- snapshot of the product price at request time
+  payment_screenshot_path text not null,  -- path inside the 'payment-screenshots' storage bucket
+  status text not null default 'Pending' check (status in ('Pending','Approved','Rejected')),
+  order_id uuid references orders(id),    -- filled in once Admin approves and the order is created
   created_at timestamp with time zone default now()
 );
 
@@ -75,7 +86,8 @@ alter table products enable row level security;
 alter table applications enable row level security;
 alter table orders enable row level security;
 alter table commissions enable row level security;
-alter table admin_logs enable row level security;
+alter table seller_products enable row level security;
+alter table sale_requests enable row level security;
 
 -- Basic policies (hackathon-simple: tighten later if needed)
 create policy "Users can view own profile" on users
@@ -120,9 +132,6 @@ create policy "Admins can update applications" on applications
     exists (select 1 from users u where u.id = auth.uid() and u.role = 'admin')
   );
 
-create policy "Anyone authenticated can insert applications" on applications
-  for insert with check (auth.role() = 'authenticated');
-
 create policy "Sellers can request a product change on their own application" on applications
   for update using (auth.uid() = user_id);
 -- NOTE (hackathon simplification): Postgres RLS is row-level, not column-level, so this
@@ -131,25 +140,66 @@ create policy "Sellers can request a product change on their own application" on
 -- or status — so in normal use this stays safe. Do NOT expose a generic "update my application"
 -- endpoint; only use requestProductChange() from lib/api.js.
 
+create policy "Anyone authenticated can insert applications" on applications
+  for insert with check (auth.role() = 'authenticated');
+
 create policy "Sellers view own orders" on orders
   for select using (auth.uid() = seller_id or auth.uid() = customer_id);
+
+create policy "Anyone can create orders" on orders
+  for insert with check (true); -- allows guest checkout, no login required
 
 create policy "Sellers view own commissions" on commissions
   for select using (auth.uid() = seller_id);
 
-create policy "Admins can view all logs" on admin_logs
+create policy "Anyone can insert commissions" on commissions
+  for insert with check (true); -- placeOrder() writes this row right after the order
+
+create policy "Anyone can view approved employees" on users
+  for select using (role = 'employee'); -- needed so guest checkout can pick a seller to assign
+
+-- Sellers can view their own product requests (Pending/Approved/Rejected), and can create new
+-- requests for themselves (always starting Pending — only an Admin can approve/reject).
+create policy "Sellers view own seller_products" on seller_products
+  for select using (auth.uid() = seller_id);
+
+create policy "Sellers can request a new product (Pending only)" on seller_products
+  for insert with check (auth.uid() = seller_id and status = 'Pending');
+
+create policy "Admins view all seller_products" on seller_products
   for select using (
     exists (select 1 from users u where u.id = auth.uid() and u.role = 'admin')
   );
 
-create policy "Admins can insert logs" on admin_logs
-  for insert with check (auth.role() = 'authenticated');
+create policy "Admins can insert seller_products" on seller_products
+  for insert with check (
+    exists (select 1 from users u where u.id = auth.uid() and u.role = 'admin')
+  );
 
--- NOTE: orders/commissions are intentionally NOT insertable directly by anon/
--- authenticated clients — see the place_order() function at the bottom of this
--- file. It's the only way orders get created, and it validates the seller's
--- approval (for the exact product being sold) + computes the commission math
--- itself (never trusted from the client).
+create policy "Admins can approve/reject seller_products" on seller_products
+  for update using (
+    exists (select 1 from users u where u.id = auth.uid() and u.role = 'admin')
+  );
+
+-- Sellers can view their own sale requests (Pending/Approved/Rejected) and create new ones —
+-- always starting Pending, since only an Admin can approve/reject. This is what powers the
+-- "Confirm sale" flow: the seller uploads a payment screenshot and waits for Admin review
+-- before any commission is credited.
+create policy "Sellers view own sale requests" on sale_requests
+  for select using (auth.uid() = seller_id);
+
+create policy "Sellers can create own sale requests (Pending only)" on sale_requests
+  for insert with check (auth.uid() = seller_id and status = 'Pending');
+
+create policy "Admins view all sale requests" on sale_requests
+  for select using (
+    exists (select 1 from users u where u.id = auth.uid() and u.role = 'admin')
+  );
+
+create policy "Admins can approve/reject sale requests" on sale_requests
+  for update using (
+    exists (select 1 from users u where u.id = auth.uid() and u.role = 'admin')
+  );
 
 -- Seed products (matches mock data used across all member modules)
 insert into products (id, name, category, price, description) values
@@ -183,89 +233,33 @@ using (
 );
 
 -- ================================================================
--- CHECKOUT: approved-seller lookup (filtered to a specific product, since each
--- seller only sells the one product they're assigned to) + atomic order placement
--- (see schema-checkout-fix.sql and schema-seller-assignment-fix.sql for the full
--- write-up of why these exist)
+-- PAYMENT SCREENSHOTS (Supabase Storage)
+-- These can contain sensitive proof-of-payment info, so this bucket must stay PRIVATE
+-- (unlike product-images). Files are viewed via short-lived signed URLs, never public URLs.
+-- IMPORTANT: before running the policies below, first create the bucket:
+-- Dashboard > Storage > New bucket > name it exactly "payment-screenshots" > leave
+-- "Public bucket" OFF > Save.
+-- The app always uploads to the path "<seller_id>/<filename>", so a seller's own uploads
+-- live in a folder named after their own user id — that's what these policies check.
 -- ================================================================
 
-create function public.get_approved_sellers(p_product_id text default null)
-returns table (id uuid, full_name text)
-language sql
-security definer
-set search_path = public
-as $$
-  select u.id, u.full_name
-  from users u
-  join applications a on a.user_id = u.id
-  where u.role = 'employee'
-    and a.status = 'Approved'
-    and (p_product_id is null or a.assigned_product_id = p_product_id);
-$$;
+create policy "Sellers can upload own payment screenshots"
+on storage.objects for insert
+with check (
+  bucket_id = 'payment-screenshots'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
 
-grant execute on function public.get_approved_sellers(text) to anon, authenticated;
+create policy "Sellers can view own payment screenshots"
+on storage.objects for select
+using (
+  bucket_id = 'payment-screenshots'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
 
-create function public.place_order(
-  p_customer_id uuid,
-  p_seller_id uuid,
-  p_product_id text,
-  p_customer_name text default null,
-  p_customer_phone text default null
-)
-returns json
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_product products%rowtype;
-  v_order orders%rowtype;
-  v_commission commissions%rowtype;
-  v_seller_rate numeric;
-  v_fund_rate numeric := 0.05;
-  v_seller_commission numeric;
-  v_education_fund numeric;
-begin
-  select * into v_product from products where id = p_product_id;
-  if not found then
-    raise exception 'Product % not found', p_product_id;
-  end if;
-
-  if not exists (
-    select 1 from users u
-    join applications a on a.user_id = u.id
-    where u.id = p_seller_id
-      and u.role = 'employee'
-      and a.status = 'Approved'
-      and a.assigned_product_id = p_product_id
-  ) then
-    raise exception 'Seller % is not an approved seller for product %', p_seller_id, p_product_id;
-  end if;
-
-  v_seller_rate := case v_product.category
-    when 'Antivirus/Security' then 0.20
-    when 'Online Course' then 0.15
-    when 'Mobile Data' then 0.08
-    else 0.10
-  end;
-
-  insert into orders (customer_id, seller_id, product_id, price, customer_name, customer_phone)
-  values (p_customer_id, p_seller_id, p_product_id, v_product.price, p_customer_name, p_customer_phone)
-  returning * into v_order;
-
-  v_seller_commission := v_product.price * v_seller_rate;
-  v_education_fund := (v_product.price - v_seller_commission) * v_fund_rate;
-
-  insert into commissions (order_id, seller_id, seller_commission, education_fund_amount)
-  values (v_order.id, p_seller_id, v_seller_commission, v_education_fund)
-  returning * into v_commission;
-
-  return json_build_object(
-    'order', row_to_json(v_order),
-    'commission', row_to_json(v_commission),
-    'product_name', v_product.name
-  );
-end;
-$$;
-
-grant execute on function public.place_order(uuid, uuid, text, text, text) to anon, authenticated;
+create policy "Admins can view all payment screenshots"
+on storage.objects for select
+using (
+  bucket_id = 'payment-screenshots'
+  and exists (select 1 from public.users u where u.id = auth.uid() and u.role = 'admin')
+);
