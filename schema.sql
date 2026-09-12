@@ -59,12 +59,23 @@ create table commissions (
   created_at timestamp with time zone default now()
 );
 
+-- ADMIN LOGS (every admin action, visible to all admins)
+create table admin_logs (
+  id uuid primary key default gen_random_uuid(),
+  admin_id uuid references users(id),
+  admin_name text not null,
+  action text not null,          -- e.g. 'approved_application', 'rejected_application', 'created_admin'
+  details text,
+  created_at timestamp with time zone default now()
+);
+
 -- Enable Row Level Security (RLS)
 alter table users enable row level security;
 alter table products enable row level security;
 alter table applications enable row level security;
 alter table orders enable row level security;
 alter table commissions enable row level security;
+alter table admin_logs enable row level security;
 
 -- Basic policies (hackathon-simple: tighten later if needed)
 create policy "Users can view own profile" on users
@@ -125,6 +136,14 @@ create policy "Sellers view own orders" on orders
 
 create policy "Sellers view own commissions" on commissions
   for select using (auth.uid() = seller_id);
+
+create policy "Admins can view all logs" on admin_logs
+  for select using (
+    exists (select 1 from users u where u.id = auth.uid() and u.role = 'admin')
+  );
+
+create policy "Admins can insert logs" on admin_logs
+  for insert with check (auth.role() = 'authenticated');
 
 -- NOTE: orders/commissions are intentionally NOT insertable directly by anon/
 -- authenticated clients — see the place_order() function at the bottom of this

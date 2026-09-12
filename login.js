@@ -8,11 +8,13 @@ export default function Home() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [invalidCredentials, setInvalidCredentials] = useState(false);
   const [loading, setLoading] = useState(false);
 
   async function handleLogin(e) {
     e.preventDefault();
     setError('');
+    setInvalidCredentials(false);
     setLoading(true);
 
     const result = await signIn(email, password);
@@ -20,6 +22,7 @@ export default function Home() {
 
     if (!result.success) {
       setError(result.error);
+      setInvalidCredentials(!!result.invalidCredentials);
       return;
     }
 
@@ -61,7 +64,17 @@ export default function Home() {
               required
             />
 
-            {error && <p className="error-text">{error}</p>}
+            {error && (
+              <p className="error-text">
+                {error}
+                {invalidCredentials && (
+                  <>
+                    {' '}
+                    <Link href="/signup">Sign up here</Link>
+                  </>
+                )}
+              </p>
+            )}
 
             <button className="btn" type="submit" disabled={loading}>
               {loading ? 'Logging in...' : 'Log in'}

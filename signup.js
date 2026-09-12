@@ -15,6 +15,7 @@ export default function Signup() {
   const [products, setProducts] = useState([]);
   const [requestedProductId, setRequestedProductId] = useState('');
   const [error, setError] = useState('');
+  const [alreadyExists, setAlreadyExists] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -28,6 +29,7 @@ export default function Signup() {
   async function handleSignup(e) {
     e.preventDefault();
     setError('');
+    setAlreadyExists(false);
 
     if (role === 'employee' && !requestedProductId) {
       setError('Please choose which product you want to sell.');
@@ -41,6 +43,7 @@ export default function Signup() {
     if (!result.success) {
       setLoading(false);
       setError(result.error);
+      setAlreadyExists(!!result.alreadyExists);
       return;
     }
 
@@ -95,7 +98,6 @@ export default function Signup() {
             <select value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="customer">Customer (buy products)</option>
               <option value="employee">Seller (resell products & earn commission)</option>
-              <option value="admin">Admin</option>
             </select>
 
             <label>City</label>
@@ -126,7 +128,17 @@ export default function Signup() {
               </>
             )}
 
-            {error && <p className="error-text">{error}</p>}
+            {error && (
+              <p className="error-text">
+                {error}
+                {alreadyExists && (
+                  <>
+                    {' '}
+                    <Link href="/login">Log in here</Link>
+                  </>
+                )}
+              </p>
+            )}
 
             <button className="btn" type="submit" disabled={loading}>
               {loading ? 'Creating account...' : 'Sign up'}

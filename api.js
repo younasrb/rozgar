@@ -282,3 +282,83 @@ export async function getApprovedSellers(productId) {
   if (error) return { success: false, error: error.message };
   return { success: true, sellers: data };
 }
+
+/**
+ * Record an admin action so every admin can see who did what.
+ */
+export async function logAdminAction(adminId, adminName, action, details = null) {
+  const { error } = await supabase.from('admin_logs').insert({
+    admin_id: adminId,
+    admin_name: adminName,
+    action,
+    details,
+  });
+  if (error) return { success: false, error: error.message };
+  return { success: true };
+}
+
+/**
+ * Get the full admin activity log (newest first) — visible to all admins.
+ */
+export async function getAdminLogs() {
+  const { data, error } = await supabase
+    .from('admin_logs')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, logs: data };
+}
+
+/**
+ * Get the list of current admin accounts.
+ */
+export async function getAdmins() {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, full_name, created_at')
+    .eq('role', 'admin');
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, admins: data };
+}
+
+/**
+ * Create a new admin account. Only call this from the Admin dashboard.
+ *
+ * IMPORTANT LIMITATION: Supabase's client-side signUp() switches the browser's
+ * active session to the newly created account. This function immediately signs
+ * that new session back out so the acting admin can log back in — there is a
+ * brief moment where the browser is "logged in" as the new admin before that
+ * happens. This is a known trade-off of not having a backend server; a fully
+ * seamless version would use a Supabase Edge Function with a service-role key.
+ */
+export async function createAdminAccount(email, password, fullName) {
+  const { data: authData, error: authError } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+
+  if (authError) {
+    const msg = authError.message.toLowerCase();
+    if (msg.includes('already registered') || msg.includes('already exists')) {
+      return { success: false, error: 'This email already has an account.' };
+    }
+    return { success: false, error: authError.message };
+  }
+
+  const { error: profileError } = await supabase.from('users').insert({
+    id: authData.user.id,
+    full_name: fullName,
+    role: 'admin',
+  });
+
+  if (profileError) {
+    return { success: false, error: profileError.message };
+  }
+
+  // Sign the new admin's session back out — the acting admin will need to log in again.
+  await supabase.auth.signOut();
+
+  return { success: true, newAdminId: authData.user.id };
+}

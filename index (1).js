@@ -15,6 +15,10 @@ import {
   adminSetAssignedProduct,
   approveProductChange,
   rejectProductChange,
+  getAdmins,
+  getAdminLogs,
+  logAdminAction,
+  createAdminAccount,
 } from '../../lib/api';
 
 const CATEGORY_OPTIONS = ['Antivirus/Security', 'Online Course', 'Mobile Data'];
@@ -66,6 +70,15 @@ export default function AdminDashboard() {
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
+  const [admins, setAdmins] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [newAdminName, setNewAdminName] = useState('');
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminPassword, setNewAdminPassword] = useState('');
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+  const [addAdminError, setAddAdminError] = useState('');
+  const [addAdminDone, setAddAdminDone] = useState(false);
+
   useEffect(() => {
     async function load() {
       const profile = await getCurrentUser();
@@ -77,10 +90,44 @@ export default function AdminDashboard() {
       await refreshApplications();
       await refreshProducts();
       await refreshSellers();
+      await refreshAdmins();
+      await refreshLogs();
       setLoading(false);
     }
     load();
   }, [router]);
+
+  async function refreshAdmins() {
+    const res = await getAdmins();
+    if (res.success) setAdmins(res.admins);
+  }
+
+  async function refreshLogs() {
+    const res = await getAdminLogs();
+    if (res.success) setLogs(res.logs);
+  }
+
+  async function handleCreateAdmin(e) {
+    e.preventDefault();
+    setAddAdminError('');
+    setCreatingAdmin(true);
+
+    const result = await createAdminAccount(newAdminEmail, newAdminPassword, newAdminName);
+
+    if (!result.success) {
+      setCreatingAdmin(false);
+      setAddAdminError(result.error);
+      return;
+    }
+
+    await logAdminAction(user.id, user.full_name, 'created_admin', `Created new admin account: ${newAdminName}`);
+
+    setCreatingAdmin(false);
+    setAddAdminDone(true);
+    // createAdminAccount() already signed the session out — send the acting
+    // admin back to /login so they can log back in as themselves.
+    setTimeout(() => router.push('/login'), 2000);
+  }
 
   async function refreshApplications() {
     const res = await getPendingApplications();
@@ -130,8 +177,13 @@ export default function AdminDashboard() {
       return;
     }
     setActionId(id);
+    const app = applications.find((a) => a.id === id);
     const res = await approveApplication(id, productId);
     if (!res.success) alert(res.error);
+    else if (user) {
+      await logAdminAction(user.id, user.full_name, 'approved_application', `Approved ${app?.full_name || 'a seller'}'s application`);
+      await refreshLogs();
+    }
     await refreshApplications();
     await refreshSellers();
     setActionId(null);
@@ -139,7 +191,12 @@ export default function AdminDashboard() {
 
   async function handleReject(id) {
     setActionId(id);
+    const app = applications.find((a) => a.id === id);
     await rejectApplication(id);
+    if (user) {
+      await logAdminAction(user.id, user.full_name, 'rejected_application', `Rejected ${app?.full_name || 'a seller'}'s application`);
+      await refreshLogs();
+    }
     await refreshApplications();
     setActionId(null);
   }
@@ -620,6 +677,77 @@ export default function AdminDashboard() {
             <code>commissions</code> tables directly in Supabase.
           </p>
         </section>
+
+        <div className="two-col">
+          <section className="panel">
+            <h2>Admins</h2>
+            <div className="admin-list">
+              {admins.map((a) => (
+                <div key={a.id} className="admin-row">
+                  <span>{a.full_name}</span>
+                  {a.id === user.id && <span className="badge badge-you">You</span>}
+                </div>
+              ))}
+            </div>
+
+            <h3>Add a new admin</h3>
+            {addAdminDone ? (
+              <p className="notice-box">
+                Admin created. For security, you've been logged out of the new account —
+                redirecting you back to login…
+              </p>
+            ) : (
+              <form onSubmit={handleCreateAdmin} className="add-admin-form">
+                <label>Full name</label>
+                <input value={newAdminName} onChange={(e) => setNewAdminName(e.target.value)} required />
+
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={newAdminEmail}
+                  onChange={(e) => setNewAdminEmail(e.target.value)}
+                  required
+                />
+
+                <label>Temporary password</label>
+                <input
+                  type="password"
+                  value={newAdminPassword}
+                  onChange={(e) => setNewAdminPassword(e.target.value)}
+                  required
+                  minLength={6}
+                />
+
+                {addAdminError && <p className="error-text">{addAdminError}</p>}
+
+                <button className="approve-btn full-width" type="submit" disabled={creatingAdmin}>
+                  {creatingAdmin ? 'Creating…' : 'Create admin'}
+                </button>
+                <p className="hint-text">
+                  Note: creating an admin will briefly log you out — you'll need to log back in
+                  afterward.
+                </p>
+              </form>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2>Activity log</h2>
+            <div className="log-list">
+              {logs.length === 0 && <p className="empty-state">No admin actions yet.</p>}
+              {logs.map((log) => (
+                <div key={log.id} className="log-row">
+                  <div>
+                    <strong>{log.admin_name}</strong>
+                    <span className="log-action"> — {log.action.replace(/_/g, ' ')}</span>
+                  </div>
+                  {log.details && <p className="log-details">{log.details}</p>}
+                  <span className="log-time">{new Date(log.created_at).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
       </div>
 
       <style jsx>{`
@@ -738,6 +866,107 @@ export default function AdminDashboard() {
           background: white;
           border-radius: 14px;
           padding: 22px;
+          margin-bottom: 20px;
+        }
+
+        .two-col {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+        }
+
+        .admin-list {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
+
+        .admin-row {
+          display: flex;
+          align-items: center;
+          padding: 8px 0;
+          border-bottom: 1px solid #eef2f2;
+          font-size: 14px;
+        }
+
+        .badge-you {
+          background: #dceaea;
+          color: #1f4e5f;
+          margin-left: 8px;
+        }
+
+        .add-admin-form label {
+          font-size: 13px;
+          font-weight: 600;
+          color: #4d5a5d;
+        }
+
+        .add-admin-form input {
+          width: 100%;
+          padding: 9px 12px;
+          margin: 4px 0 12px 0;
+          border: 1px solid #dceaea;
+          border-radius: 8px;
+          font-size: 14px;
+        }
+
+        .approve-btn.full-width {
+          width: 100%;
+          padding: 10px 16px;
+        }
+
+        .hint-text {
+          font-size: 12px;
+          color: #7a8a8d;
+          margin-top: 8px;
+        }
+
+        .notice-box {
+          background: #dceaea;
+          color: #1f4e5f;
+          padding: 14px;
+          border-radius: 10px;
+          font-size: 14px;
+        }
+
+        .log-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          max-height: 420px;
+          overflow-y: auto;
+        }
+
+        .log-row {
+          padding: 10px 0;
+          border-bottom: 1px solid #eef2f2;
+        }
+
+        .log-row:last-child {
+          border-bottom: none;
+        }
+
+        .log-action {
+          color: #4d5a5d;
+          font-size: 14px;
+        }
+
+        .log-details {
+          font-size: 13px;
+          color: #7a8a8d;
+          margin: 4px 0 0;
+        }
+
+        .log-time {
+          font-size: 11px;
+          color: #a3b0b2;
+        }
+
+        @media (max-width: 720px) {
+          .two-col {
+            grid-template-columns: 1fr;
+          }
         }
 
         .app-list {
@@ -845,8 +1074,6 @@ export default function AdminDashboard() {
           color: #1f4e5f;
           font-weight: 600;
         }
-
-        .product-form {
           background: #f9fbfa;
           border: 1px solid #eef2f2;
           border-radius: 12px;
