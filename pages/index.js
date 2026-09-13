@@ -413,6 +413,8 @@ export default function CustomerDashboard() {
         }
 
         .staff-link {
+          position: relative;
+          overflow: hidden;
           background: linear-gradient(135deg, #e8a33d, #d1912f);
           color: white;
           font-size: 13px;
@@ -423,11 +425,46 @@ export default function CustomerDashboard() {
           box-shadow: 0 2px 8px rgba(232, 163, 61, 0.35);
           transition: transform 0.2s ease, box-shadow 0.2s ease;
           white-space: nowrap;
+          animation: staffPulse 2.4s ease-in-out infinite;
+        }
+
+        .staff-link::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -60%;
+          width: 40%;
+          height: 100%;
+          background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+          transform: skewX(-20deg);
+          animation: staffShine 2.6s ease-in-out infinite;
         }
 
         .staff-link:hover {
           transform: translateY(-2px);
-          box-shadow: 0 6px 14px rgba(232, 163, 61, 0.45);
+          box-shadow: 0 6px 16px rgba(232, 163, 61, 0.55);
+          animation-play-state: paused;
+        }
+
+        @keyframes staffPulse {
+          0%, 100% {
+            box-shadow: 0 2px 8px rgba(232, 163, 61, 0.35);
+          }
+          50% {
+            box-shadow: 0 2px 16px rgba(232, 163, 61, 0.7);
+          }
+        }
+
+        @keyframes staffShine {
+          0% {
+            left: -60%;
+          }
+          55% {
+            left: 130%;
+          }
+          100% {
+            left: 130%;
+          }
         }
 
         .hero {
