@@ -475,6 +475,7 @@ export default function CustomerDashboard() {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
           gap: 18px;
+          perspective: 1000px;
         }
 
         @keyframes sectionFadeIn {
@@ -501,19 +502,25 @@ export default function CustomerDashboard() {
 
         .product-card {
           background: white;
-          border-radius: 14px;
+          border-radius: 16px;
           padding: 22px;
           display: flex;
           flex-direction: column;
           animation: cardFadeSlideUp 0.5s ease both;
           animation-delay: var(--card-delay, 0ms);
-          transition: transform 0.25s ease, box-shadow 0.25s ease;
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+          transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+          border: 1px solid #eef2f2;
+          transform-style: preserve-3d;
+          will-change: transform;
+          overflow: hidden;
         }
 
         .product-card:hover {
-          transform: translateY(-6px) scale(1.015);
-          box-shadow: 0 14px 28px rgba(31, 78, 95, 0.14);
+          transform: perspective(900px) rotateX(3deg) rotateY(-3deg) translateY(-10px) scale(1.025);
+          box-shadow: 0 24px 40px -12px rgba(31, 78, 95, 0.28), 0 8px 16px rgba(31, 78, 95, 0.1);
+          border-color: #cfe0e0;
+          z-index: 2;
         }
 
         .product-icon {
@@ -527,12 +534,25 @@ export default function CustomerDashboard() {
           object-fit: cover;
           border-radius: 10px;
           margin-bottom: 10px;
+          transition: transform 0.4s ease;
+        }
+
+        .product-card:hover .product-image {
+          transform: scale(1.06);
         }
 
         .product-category {
-          font-size: 12px;
-          color: #7a8a8d;
-          margin-bottom: 4px;
+          display: inline-block;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          color: #1f4e5f;
+          background: #eaf2f0;
+          padding: 3px 10px;
+          border-radius: 999px;
+          margin-bottom: 8px;
+          align-self: flex-start;
         }
 
         .product-card h3 {
@@ -554,8 +574,9 @@ export default function CustomerDashboard() {
         }
 
         .price {
-          font-weight: 600;
-          font-size: 16px;
+          font-weight: 700;
+          font-size: 18px;
+          color: #1f4e5f;
         }
 
         .add-btn {
