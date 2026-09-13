@@ -136,8 +136,8 @@ export default function CustomerDashboard() {
                 Log out
               </button>
             ) : (
-              <Link href="/login" className="link-btn staff-link">
-                Staff Login
+              <Link href="/login" className="staff-link">
+                Join as Affiliate
               </Link>
             )}
           </nav>
@@ -410,6 +410,24 @@ export default function CustomerDashboard() {
 
         .shop-nav .link-btn {
           color: white;
+        }
+
+        .staff-link {
+          background: linear-gradient(135deg, #e8a33d, #d1912f);
+          color: white;
+          font-size: 13px;
+          font-weight: 600;
+          text-decoration: none;
+          padding: 8px 18px;
+          border-radius: 999px;
+          box-shadow: 0 2px 8px rgba(232, 163, 61, 0.35);
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          white-space: nowrap;
+        }
+
+        .staff-link:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 14px rgba(232, 163, 61, 0.45);
         }
 
         .hero {
