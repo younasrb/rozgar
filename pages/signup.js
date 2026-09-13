@@ -95,8 +95,11 @@ export default function Signup() {
             <select value={role} onChange={(e) => setRole(e.target.value)}>
               <option value="customer">Customer (buy products)</option>
               <option value="employee">Seller (resell products & earn commission)</option>
-              <option value="admin">Admin</option>
             </select>
+            <p style={{ fontSize: 13, color: '#777' }}>
+              Admin accounts aren't self-serve — ask an existing Admin, or see the README for how
+              to create the first one.
+            </p>
 
             <label>City</label>
             <input value={city} onChange={(e) => setCity(e.target.value)} />
