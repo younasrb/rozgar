@@ -24,6 +24,8 @@ export default function CustomerDashboard() {
   const [checkoutState, setCheckoutState] = useState('idle'); // idle | processing | done
   const [lastOrderImpact, setLastOrderImpact] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('default'); // default | price-asc | price-desc
 
   useEffect(() => {
     async function load() {
@@ -46,13 +48,32 @@ export default function CustomerDashboard() {
   }, [products]);
 
   const visibleProducts = useMemo(() => {
-    if (activeCategory === 'All') return products;
-    return products.filter((p) => p.category === activeCategory);
-  }, [products, activeCategory]);
+    let list = activeCategory === 'All' ? products : products.filter((p) => p.category === activeCategory);
+
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q)) ||
+          p.category.toLowerCase().includes(q)
+      );
+    }
+
+    if (sortBy === 'price-asc') list = [...list].sort((a, b) => a.price - b.price);
+    if (sortBy === 'price-desc') list = [...list].sort((a, b) => b.price - a.price);
+
+    return list;
+  }, [products, activeCategory, searchQuery, sortBy]);
 
   // Group whatever is currently visible into { categoryName: [products] } sections,
   // in the same order the category chips appear — this powers the category-wise layout below.
+  // When sorting or searching, we skip the per-category grouping and just show one flat list,
+  // since "cheapest first" only makes sense across everything, not re-sorted within each group.
   const groupedProducts = useMemo(() => {
+    if (sortBy !== 'default' || searchQuery.trim()) {
+      return visibleProducts.length > 0 ? { __flat__: visibleProducts } : {};
+    }
     const order = categories.filter((c) => c !== 'All');
     const groups = {};
     order.forEach((cat) => {
@@ -60,7 +81,20 @@ export default function CustomerDashboard() {
       if (items.length > 0) groups[cat] = items;
     });
     return groups;
-  }, [visibleProducts, categories]);
+  }, [visibleProducts, categories, sortBy, searchQuery]);
+
+  // A handful of products get a "Best Seller" ribbon — first product per category, just for visual interest.
+  const bestSellerIds = useMemo(() => {
+    const seen = new Set();
+    const ids = new Set();
+    products.forEach((p) => {
+      if (!seen.has(p.category)) {
+        seen.add(p.category);
+        ids.add(p.id);
+      }
+    });
+    return ids;
+  }, [products]);
 
   function addToCart(product) {
     setCart([...cart, product]);
@@ -110,7 +144,121 @@ export default function CustomerDashboard() {
     setCartOpen(false);
   }
 
-  if (loading) return <div className="loading-screen">Loading your marketplace…</div>;
+  if (loading) {
+    return (
+      <div className="shop">
+        <header className="shop-nav">
+          <div className="shop-nav-inner">
+            <span className="brand skeleton-text" style={{ width: 90 }}>&nbsp;</span>
+          </div>
+        </header>
+        <div className="skeleton-hero" />
+        <div className="skeleton-toolbar" />
+        <div className="skeleton-chips">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="skeleton-chip" />
+          ))}
+        </div>
+        <div className="skeleton-grid">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="skeleton-card">
+              <div className="skeleton-img" />
+              <div className="skeleton-line" style={{ width: '40%' }} />
+              <div className="skeleton-line" style={{ width: '80%', height: 16 }} />
+              <div className="skeleton-line" style={{ width: '60%' }} />
+            </div>
+          ))}
+        </div>
+
+        <style jsx>{`
+          .shop {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #f2f6f3;
+            min-height: 100vh;
+          }
+          .shop-nav {
+            background: #1f4e5f;
+          }
+          .shop-nav-inner {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 16px 24px;
+          }
+          .skeleton-hero {
+            max-width: 1080px;
+            margin: 24px auto;
+            height: 120px;
+            border-radius: 14px;
+          }
+          .skeleton-toolbar {
+            max-width: 1080px;
+            margin: 0 auto 16px;
+            padding: 0 24px;
+            height: 44px;
+            border-radius: 10px;
+          }
+          .skeleton-chips {
+            max-width: 1080px;
+            margin: 0 auto 24px;
+            padding: 0 24px;
+            display: flex;
+            gap: 10px;
+          }
+          .skeleton-chip {
+            width: 90px;
+            height: 32px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          .skeleton-grid {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 0 24px 48px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 18px;
+          }
+          .skeleton-card {
+            background: white;
+            border-radius: 16px;
+            padding: 22px;
+          }
+          .skeleton-img {
+            height: 140px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          .skeleton-line {
+            height: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          .skeleton-hero,
+          .skeleton-toolbar {
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          @keyframes shimmer {
+            0% {
+              background-position: 100% 0;
+            }
+            100% {
+              background-position: -100% 0;
+            }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="shop">
@@ -189,6 +337,28 @@ export default function CustomerDashboard() {
         </div>
       </section>
 
+      <section className="toolbar">
+        <div className="search-box">
+          <span className="search-icon">🔍</span>
+          <input
+            type="text"
+            placeholder="Search products…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button className="clear-search" onClick={() => setSearchQuery('')} aria-label="Clear search">
+              ✕
+            </button>
+          )}
+        </div>
+        <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="default">Sort: Featured</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+        </select>
+      </section>
+
       <section className="categories">
         {categories.map((cat) => (
           <button
@@ -204,7 +374,7 @@ export default function CustomerDashboard() {
 
       <section className="product-grid">
         {Object.keys(groupedProducts).length === 0 && (
-          <p className="empty-state">No products in this category yet.</p>
+          <p className="empty-state">No products match your search.</p>
         )}
         {Object.entries(groupedProducts).map(([cat, items], groupIndex) => (
           <div
@@ -212,9 +382,11 @@ export default function CustomerDashboard() {
             className="category-section"
             style={{ '--group-delay': `${groupIndex * 90}ms` }}
           >
-            <h2 className="category-title">
-              <span>{CATEGORY_ICONS[cat] || '🛒'}</span> {cat}
-            </h2>
+            {cat !== '__flat__' && (
+              <h2 className="category-title">
+                <span>{CATEGORY_ICONS[cat] || '🛒'}</span> {cat}
+              </h2>
+            )}
             <div className="category-row">
               {items.map((p, i) => {
                 const fundShare = (p.price * FUND_RATE_DISPLAY).toFixed(0);
@@ -224,6 +396,7 @@ export default function CustomerDashboard() {
                     className="product-card"
                     style={{ '--card-delay': `${groupIndex * 90 + i * 70}ms` }}
                   >
+                    {bestSellerIds.has(p.id) && <span className="best-seller-badge">🔥 Best Seller</span>}
                     {p.image_url ? (
                       <img src={p.image_url} alt={p.name} className="product-image" />
                     ) : (
@@ -317,6 +490,35 @@ export default function CustomerDashboard() {
           </>
         )}
       </aside>
+
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <div className="footer-brand">
+            <span className="brand">Rozgar</span>
+            <p>Everyday essentials sold by people building an income, with a share of every sale funding a child's education.</p>
+          </div>
+          <div className="footer-col">
+            <h4>Company</h4>
+            <a href="#">About us</a>
+            <a href="#">How it works</a>
+            <a href="/login">Sell on Rozgar</a>
+          </div>
+          <div className="footer-col">
+            <h4>Support</h4>
+            <a href="#">Contact us</a>
+            <a href="#">FAQs</a>
+            <a href="#">Track an order</a>
+          </div>
+          <div className="footer-col">
+            <h4>Legal</h4>
+            <a href="#">Terms of service</a>
+            <a href="#">Privacy policy</a>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          © {new Date().getFullYear()} Rozgar. All rights reserved.
+        </div>
+      </footer>
 
       <style jsx>{`
         .shop {
@@ -505,6 +707,59 @@ export default function CustomerDashboard() {
           }
         }
 
+        .toolbar {
+          max-width: 1080px;
+          margin: 0 auto;
+          padding: 0 24px 16px;
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+
+        .search-box {
+          flex: 1;
+          min-width: 220px;
+          display: flex;
+          align-items: center;
+          background: white;
+          border: 1px solid #dde5e5;
+          border-radius: 10px;
+          padding: 0 12px;
+        }
+
+        .search-icon {
+          font-size: 14px;
+          opacity: 0.6;
+        }
+
+        .search-box input {
+          flex: 1;
+          border: none;
+          outline: none;
+          padding: 10px 8px;
+          font-size: 14px;
+          background: transparent;
+        }
+
+        .clear-search {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #7a8a8d;
+          font-size: 14px;
+          padding: 4px;
+        }
+
+        .sort-select {
+          padding: 10px 12px;
+          border: 1px solid #dde5e5;
+          border-radius: 10px;
+          font-size: 14px;
+          background: white;
+          color: #22282a;
+        }
+
         .categories {
           max-width: 1080px;
           margin: 0 auto;
@@ -593,6 +848,7 @@ export default function CustomerDashboard() {
         }
 
         .product-card {
+          position: relative;
           background: white;
           border-radius: 16px;
           padding: 22px;
@@ -613,6 +869,20 @@ export default function CustomerDashboard() {
           box-shadow: 0 24px 40px -12px rgba(31, 78, 95, 0.28), 0 8px 16px rgba(31, 78, 95, 0.1);
           border-color: #cfe0e0;
           z-index: 2;
+        }
+
+        .best-seller-badge {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          background: linear-gradient(135deg, #e8a33d, #d1912f);
+          color: white;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 4px 10px;
+          border-radius: 999px;
+          box-shadow: 0 2px 6px rgba(232, 163, 61, 0.4);
+          z-index: 1;
         }
 
         .product-icon {
@@ -703,6 +973,70 @@ export default function CustomerDashboard() {
           color: #1f4e5f;
           margin-top: 10px;
           margin-bottom: 0;
+        }
+
+        .site-footer {
+          background: #163540;
+          color: #cfe0e0;
+          margin-top: 60px;
+        }
+
+        .footer-inner {
+          max-width: 1080px;
+          margin: 0 auto;
+          padding: 44px 24px 28px;
+          display: grid;
+          grid-template-columns: 1.6fr 1fr 1fr 1fr;
+          gap: 24px;
+        }
+
+        .footer-brand .brand {
+          color: white;
+          font-family: 'Fraunces', serif;
+          font-size: 20px;
+        }
+
+        .footer-brand p {
+          margin-top: 10px;
+          font-size: 13px;
+          line-height: 1.6;
+          color: #9db8bd;
+          max-width: 280px;
+        }
+
+        .footer-col h4 {
+          color: white;
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          margin-bottom: 12px;
+        }
+
+        .footer-col a {
+          display: block;
+          color: #9db8bd;
+          font-size: 14px;
+          text-decoration: none;
+          margin-bottom: 8px;
+          transition: color 0.2s ease;
+        }
+
+        .footer-col a:hover {
+          color: white;
+        }
+
+        .footer-bottom {
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 16px 24px;
+          text-align: center;
+          font-size: 12px;
+          color: #7f9aa0;
+        }
+
+        @media (max-width: 640px) {
+          .footer-inner {
+            grid-template-columns: 1fr 1fr;
+          }
         }
 
         .order-history {
