@@ -154,10 +154,37 @@ export default function CustomerDashboard() {
         </div>
         <div className="hero-mark" aria-hidden="true">
           <svg viewBox="0 0 200 200" width="180" height="180">
-            <circle cx="100" cy="100" r="92" fill="#DCEAEA" />
-            <path d="M60 96 L100 72 L140 96 L100 120 Z" fill="#1F4E5F" />
-            <rect x="94" y="118" width="12" height="34" rx="3" fill="#1F4E5F" />
-            <circle cx="140" cy="96" r="6" fill="#E8A33D" />
+            <defs>
+              <radialGradient id="circleGrad" cx="35%" cy="30%" r="75%">
+                <stop offset="0%" stopColor="#EAF4F4" />
+                <stop offset="60%" stopColor="#D3E6E6" />
+                <stop offset="100%" stopColor="#B9D5D5" />
+              </radialGradient>
+              <linearGradient id="capGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#2A6178" />
+                <stop offset="100%" stopColor="#163540" />
+              </linearGradient>
+              <linearGradient id="postGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#2A6178" />
+                <stop offset="100%" stopColor="#163540" />
+              </linearGradient>
+              <radialGradient id="beadGrad" cx="35%" cy="30%" r="70%">
+                <stop offset="0%" stopColor="#F6C871" />
+                <stop offset="100%" stopColor="#D1912F" />
+              </radialGradient>
+              <filter id="capShadow" x="-40%" y="-40%" width="180%" height="180%">
+                <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="#0f2a33" floodOpacity="0.35" />
+              </filter>
+            </defs>
+
+            <circle cx="100" cy="100" r="92" fill="url(#circleGrad)" />
+            <ellipse cx="72" cy="62" rx="38" ry="20" fill="white" opacity="0.35" />
+
+            <g filter="url(#capShadow)">
+              <path d="M60 96 L100 72 L140 96 L100 120 Z" fill="url(#capGrad)" />
+              <rect x="94" y="118" width="12" height="34" rx="3" fill="url(#postGrad)" />
+              <circle cx="140" cy="96" r="6" fill="url(#beadGrad)" />
+            </g>
           </svg>
         </div>
       </section>
@@ -411,6 +438,16 @@ export default function CustomerDashboard() {
 
         .hero-mark {
           flex-shrink: 0;
+          animation: heroFloat 4s ease-in-out infinite;
+        }
+
+        @keyframes heroFloat {
+          0%, 100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-8px);
+          }
         }
 
         .categories {
