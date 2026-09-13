@@ -1,76 +1,68 @@
-# Rozgar — AI-Powered Reselling & Education Fund Platform
+<div align="center">
+
+# 🚀 Rozgar
+### AI-Powered Reselling & Education Fund Platform
 
 **"Create income today, educate the next generation tomorrow."**
 
-Rozgar is an AI-guided digital marketplace where low-income individuals — with no formal sales background — resell digital licenses and subscriptions and earn commission on every verified sale. A fixed, transparent share of platform revenue is automatically routed into an **Education Fund** that supports the education of children from low-income families. It is not a charity model: every rupee in the fund is a byproduct of a real, admin-verified, commission-driven transaction, which is what makes it sustainable at scale.
-
-Full stack in one repository: Postgres database (Supabase), a Next.js frontend, an AI sales assistant, and a fraud-safe sale-verification pipeline — all built for a hackathon and structured to read like a real product, not a demo.
+Rozgar turns anyone — with zero formal sales experience — into a verified, AI-guided digital reseller who earns real commission. A fixed slice of every rupee earned is automatically routed into an **Education Fund** for children from low-income families. Not charity — a byproduct of real, verified business.
 
 <p>
-  <img alt="stack" src="https://img.shields.io/badge/frontend-Next.js-black">
-  <img alt="db" src="https://img.shields.io/badge/database-Supabase%20(Postgres)-3ecf8e">
-  <img alt="ai" src="https://img.shields.io/badge/AI-xAI%20Grok%20%2B%20rule--based%20fallback-blueviolet">
-  <img alt="status" src="https://img.shields.io/badge/status-hackathon%20MVP-orange">
-  <img alt="license" src="https://img.shields.io/badge/license-project--private-lightgrey">
+  <img alt="frontend" src="https://img.shields.io/badge/frontend-Next.js-black?style=for-the-badge&logo=next.js">
+  <img alt="database" src="https://img.shields.io/badge/database-Supabase-3ecf8e?style=for-the-badge&logo=supabase&logoColor=white">
+  <img alt="ai" src="https://img.shields.io/badge/AI-xAI%20Grok-8A2BE2?style=for-the-badge">
+  <img alt="status" src="https://img.shields.io/badge/status-Hackathon%20MVP-orange?style=for-the-badge">
 </p>
 
----
+`Seller applies` → `Admin approves` → `AI assists the sale` → `Sale verified` → `Commission released` → `Education Fund grows` → **`Impact visible, live`**
 
-## Table of Contents
-
-1. [Why Rozgar Exists](#why-rozgar-exists)
-2. [How It Works](#how-it-works)
-3. [What's Included (Hackathon MVP)](#whats-included-hackathon-mvp)
-4. [Architecture](#architecture)
-5. [Tech Stack](#tech-stack)
-6. [Project Structure](#project-structure)
-7. [Getting Started](#getting-started)
-8. [Environment Variables](#environment-variables)
-9. [Security Model](#security-model)
-10. [Fraud Prevention: How a Sale Becomes a Commission](#fraud-prevention-how-a-sale-becomes-a-commission)
-11. [Revenue & Commission Structure](#revenue--commission-structure)
-12. [AI Sales Assistant](#ai-sales-assistant)
-13. [Public Impact Page](#public-impact-page)
-14. [End-to-End Test Flow](#end-to-end-test-flow)
-15. [Roadmap](#roadmap)
-16. [Team](#team)
-17. [Notes & Known Limitations](#notes--known-limitations)
+</div>
 
 ---
 
-## Why Rozgar Exists
+## 📑 Table of Contents
 
-Two problems, one system:
+| | | |
+|---|---|---|
+| [🎯 Why Rozgar Exists](#-why-rozgar-exists) | [🏗️ Architecture](#️-architecture) | [🔐 Security Model](#-security-model) |
+| [✨ What's Included](#-whats-included-hackathon-mvp) | [🧰 Tech Stack](#-tech-stack) | [🛡️ Fraud Prevention](#️-fraud-prevention-how-a-sale-becomes-a-commission) |
+| [🚦 Getting Started](#-getting-started) | [📁 Project Structure](#-project-structure) | [💰 Revenue & Commission](#-revenue--commission-structure) |
+| [🤖 AI Sales Assistant](#-ai-sales-assistant) | [📊 Public Impact Page](#-public-impact-page) | [✅ Test Flow](#-end-to-end-test-flow) |
+| [🗺️ Roadmap](#️-roadmap) | [👥 Team](#-team) | [⚠️ Known Limitations](#️-notes--known-limitations) |
 
-| Problem | How Rozgar addresses it |
-| --- | --- |
-| Formal jobs are scarce, and a job-listing portal only surfaces existing vacancies — it doesn't *create* income | Rozgar turns anyone into a verified reseller of digital products, earning commission with no prior sales experience required |
-| A household's financial stress raises the risk of child dropout / child labour | A flat, non-negotiable share of company revenue is automatically diverted into an Education Fund — funded by business activity, not donations |
+---
 
-Existing alternatives — job portals, generic e-commerce, generic chatbots — each solve one half of this. Rozgar is built to solve both halves with the same transaction.
+## 🎯 Why Rozgar Exists
 
-## How It Works
+Two problems. One system.
 
-```
-Seller applies  →  Admin approves  →  AI assists the sale  →  Sale is verified
-        →  Commission is released  →  Education Fund grows  →  Impact is public, live
-```
+| 😟 The Problem | ✅ How Rozgar Solves It |
+|---|---|
+| Formal jobs are scarce — a job-listing portal only shows existing vacancies, it doesn't *create* income | Rozgar turns anyone into a verified reseller of digital products, earning commission with **zero prior sales experience** |
+| A household's financial stress raises the risk of child dropout / child labour | A flat, non-negotiable slice of company revenue is automatically diverted into an **Education Fund** — funded by business, not donations |
 
-Every step above is a real, working feature in this repository — nothing here is a slide-only promise.
+Job portals, generic e-commerce, generic chatbots — each solve *half* of this. Rozgar solves both halves with the same transaction.
 
-## What's Included (Hackathon MVP)
+---
 
-- **Public storefront** — browse products and complete guest checkout, no login required.
-- **Seller (employee) onboarding** — signup auto-creates a pending application; goes live only after Admin approval.
-- **Employee dashboard** — AI sales assistant (chat), assigned product, live commission summary, "confirm a sale" flow with payment-screenshot upload.
-- **Admin dashboard** — approve/reject seller applications, approve/reject sale requests (with proof-of-payment review), manage products.
-- **Fraud-safe walk-in sales** — a seller can never create a commission directly; every walk-in sale is Admin-reviewed first.
-- **Public `/impact` page** — live, aggregate platform numbers (sellers employed, sales completed, commissions paid, Education Fund total), with zero row-level data exposure.
-- **3 seeded pilot categories** — Antivirus/Security, Online Courses, Mobile Data bundles.
+## ✨ What's Included (Hackathon MVP)
 
-Deliberately **not** shipped in this MVP: the voice assistant (mic UI was removed rather than shipped half-working) and an AI pre-check on seller applications. Both are scoped roadmap items — see [Roadmap](#roadmap).
+| Feature | Status |
+|---|---|
+| 🛒 Public storefront — browse + guest checkout, no login needed | ✅ Live |
+| 📝 Seller onboarding — signup → pending application → Admin approval | ✅ Live |
+| 💼 Employee dashboard — AI chat, assigned product, live commission summary | ✅ Live |
+| 🛡️ Fraud-safe walk-in sales — screenshot upload → Admin review → Approve/Reject | ✅ Live |
+| 🧑‍💼 Admin dashboard — approvals, product management, sale review | ✅ Live |
+| 📊 Public `/impact` page — live aggregate numbers, zero private-data leakage | ✅ Live |
+| 🎧 In-app voice assistant | 🔜 Roadmap |
+| 🤖 AI pre-check on new seller applications | 🔜 Roadmap |
 
-## Architecture
+3 seeded pilot categories at launch: **Antivirus/Security · Online Courses · Mobile Data bundles.**
+
+---
+
+## 🏗️ Architecture
 
 ```
                          ┌─────────────────────────┐
@@ -97,21 +89,25 @@ Deliberately **not** shipped in this MVP: the voice assistant (mic UI was remove
                                             reply if key missing/down)
 ```
 
-All three dashboards share one Next.js codebase and one data layer (`lib/api.js`), so a change made once (a price, a commission %) is instantly consistent everywhere — the storefront, the employee dashboard, and the admin dashboard never disagree with each other.
+All three dashboards share **one** Next.js codebase and **one** data layer (`lib/api.js`) — a price or commission % changed once is instantly consistent everywhere.
 
-## Tech Stack
+---
+
+## 🧰 Tech Stack
 
 | Layer | Choice | Why |
-| --- | --- | --- |
-| Frontend | Next.js (React 18) | File-based routing, fast to ship a 3-dashboard app from one codebase |
-| Database + Auth | Supabase (Postgres) | Generous free tier, SQL-based Row Level Security enforces rules at the DB level too, not just in the frontend |
-| File storage | Supabase Storage (2 buckets) | `product-images` public, `payment-screenshots` private with signed-URL access |
-| AI assistant | xAI Grok API + rule-based fallback | Reliability-first: the assistant never breaks a demo, live API or not |
-| Hosting (recommended) | Vercel | Free tier pairs naturally with Next.js + Supabase |
+|---|---|---|
+| 🎨 Frontend | Next.js (React 18) | File-based routing, ships a 3-dashboard app from one codebase |
+| 🗄️ Database + Auth | Supabase (Postgres) | Generous free tier + SQL-based Row Level Security enforced at the DB, not just the frontend |
+| 📦 File storage | Supabase Storage (2 buckets) | `product-images` public, `payment-screenshots` private + signed-URL access |
+| 🤖 AI assistant | xAI Grok + rule-based fallback | Reliability-first — the assistant never breaks a live demo |
+| ☁️ Hosting (recommended) | Vercel | Free tier pairs naturally with Next.js + Supabase |
 
 > **Note:** the original plan used Firebase; the as-built platform uses Supabase instead, for the same role-based-auth goal but with database-enforced Row Level Security.
 
-## Project Structure
+---
+
+## 📁 Project Structure
 
 ```
 rozgar-main/
@@ -124,29 +120,31 @@ rozgar-main/
 ├── styles/
 │   └── globals.css
 ├── lib/
-│   ├── supabaseClient.js   ← Supabase client (reads .env.local, falls back to shared demo project)
+│   ├── supabaseClient.js   ← Supabase client (falls back to shared demo project)
 │   ├── auth.js             ← signUp, signIn, signOut, getCurrentUser
 │   └── api.js              ← applications, orders, commissions, sale requests
 └── pages/
     ├── _app.js
     ├── index.js            ← public storefront (browse + guest checkout)
     ├── login.js            ← staff (seller/admin) login
-    ├── signup.js           ← customer / employee signup (never admin — see Security)
+    ├── signup.js           ← customer / employee signup (never admin)
     ├── impact.js           ← public /impact aggregate-numbers page
-    ├── customer/index.js   ← redirects to "/" (kept so old links still work)
+    ├── customer/index.js   ← redirects to "/" (kept for old links)
     ├── employee/index.js   ← seller dashboard (AI chat, commission, confirm sale)
     ├── admin/index.js      ← admin dashboard (approvals, products, sale requests)
     └── api/ai-assistant.js ← Grok-powered sales assistant + rule-based fallback
 ```
 
-## Getting Started
+---
 
-1. **Run the database schema.** Open `schema.sql`, copy the whole file, and run it in **Supabase Dashboard → SQL Editor → New Query**. This creates every table, every RLS policy, every function, and seeds the 3 pilot products.
-   *(`schema-admin-logs-fix.sql` and `schema-seller-assignment-fix.sql` are historical migrations already folded into `schema.sql` — on a fresh project you only need `schema.sql`.)*
-2. **Create two Storage buckets** in Supabase:
-   - `product-images` — **Public bucket: ON**
-   - `payment-screenshots` — **Public bucket: OFF** (holds proof-of-payment; viewed only via short-lived signed URLs, never a public link)
-3. **Configure environment variables** — copy `env.local.example` to `.env.local` and fill in your Supabase URL + anon key (Supabase Dashboard → Project Settings → API). See [Environment Variables](#environment-variables) for what each key does.
+## 🚦 Getting Started
+
+1. **Run the database schema** — open `schema.sql`, copy it all, run in **Supabase → SQL Editor → New Query**. Creates every table, RLS policy, function, and seeds the 3 pilot products.
+   *(`schema-admin-logs-fix.sql` / `schema-seller-assignment-fix.sql` are old migrations already folded into `schema.sql` — you only need `schema.sql` on a fresh project.)*
+2. **Create two Storage buckets:**
+   - `product-images` → **Public: ON**
+   - `payment-screenshots` → **Public: OFF** (private, viewed only via short-lived signed URLs)
+3. **Set environment variables** — copy `env.local.example` → `.env.local`, fill in your Supabase URL + anon key. See [table below](#-environment-variables).
 4. **Install dependencies**
    ```bash
    npm install
@@ -155,108 +153,146 @@ rozgar-main/
    ```bash
    npm run dev
    ```
-6. Open **http://localhost:3000**
+6. Open **http://localhost:3000** 🎉
 
-## Environment Variables
+### 🔑 Environment Variables
 
-The app is designed to keep working — with safe fallbacks — even if every value below is left blank, so a missing key never breaks a live demo.
-
-| Variable | Required? | Effect if blank |
-| --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Recommended | Falls back to the shared hackathon demo project hardcoded in `lib/supabaseClient.js` — set your own so you're not sharing one database with everyone else running this repo |
+| Variable | Required? | If left blank |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Recommended | Falls back to a shared hackathon demo project |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Recommended | Same as above |
-| `XAI_API_KEY` | Optional | AI assistant automatically switches to a grounded rule-based reply |
+| `XAI_API_KEY` | Optional | AI assistant switches to a rule-based reply |
 | `GROK_MODEL` | Optional | Defaults to `grok-4-fast` |
 
 `.env.local` is already git-ignored — never commit real keys.
 
-## Security Model
+---
 
-- **Admin is never self-serve.** `/signup` only offers Customer or Employee. To create an Admin:
-  1. Sign up normally as a customer.
-  2. In Supabase Dashboard → SQL Editor, run:
-     ```sql
-     update users set role = 'admin' where id = '<their auth user id>';
-     ```
-     (find the user id under Supabase → Authentication → Users)
-- **Enforced twice, not once.** The `users` table's Row Level Security policy independently blocks any signup from ever inserting itself as `admin` — even if the frontend were bypassed entirely, the database rejects it.
-- **Private storage, signed access.** Payment screenshots live in a private bucket; only short-lived signed URLs (generated on approval review) can view them — there is no public link to a customer's proof of payment.
+## 🔐 Security Model
 
-## Fraud Prevention: How a Sale Becomes a Commission
+- 🚫 **Admin is never self-serve.** `/signup` only offers Customer or Employee. To create an Admin: sign up as a customer, then in Supabase SQL Editor run:
+  ```sql
+  update users set role = 'admin' where id = '<their auth user id>';
+  ```
+- 🔒 **Enforced twice, not once.** Row Level Security on `users` independently blocks any signup from inserting itself as `admin` — even if the frontend were bypassed, the database rejects it.
+- 🖼️ **Private storage, signed access.** Payment screenshots live in a private bucket; only short-lived signed URLs can view them — never a public link.
 
-This is the platform's core trust mechanism, and it's worth understanding in full:
+---
 
-1. A seller **never** creates a commission directly. Confirming a walk-in sale on the Employee dashboard uploads the payment screenshot to the private bucket and creates a `Pending` row in `sale_requests` — no `orders` or `commissions` row exists yet.
-2. The Admin dashboard's **Sale requests** panel lists every pending request and lets the Admin open the screenshot (via a short-lived signed URL) to verify proof of payment.
-3. Only on **Approve** does the app create the real `orders` row and calculate the `commissions` row — this is the *only* moment a seller's commission total increases.
-4. **Reject** leaves the request marked `Rejected` — no order or commission is ever created from it.
-5. Customers checking out through the public storefront still use the original instant `placeOrder()` flow — this approval step exists specifically for sales an employee records themselves.
+## 🛡️ Fraud Prevention: How a Sale Becomes a Commission
 
-Without this step, any seller could claim a fake sale and pocket a commission. With it, every walk-in sale passes a human check before company money — commission *and* Education Fund contribution — is ever released.
+```
+Seller confirms sale  →  screenshot uploaded  →  "Pending" sale_request created
+        │                                              (no commission yet)
+        ▼
+Admin opens signed screenshot URL  →  reviews proof of payment
+        │
+        ├── ✅ Approve → real order + commission created (only trigger point!)
+        └── ❌ Reject  → marked Rejected, nothing ever created
+```
 
-## Revenue & Commission Structure
+Customers checking out through the public storefront still use the instant `placeOrder()` flow — this approval gate exists specifically for sales an **employee** records themselves. Without it, a seller could fabricate a sale and pocket a commission; with it, every walk-in sale passes a human check before company money moves.
 
-- Each product category carries its own seller commission percentage, reflecting that margin differs by category (software licenses margin higher than telecom data bundles, for example).
-- The **Education Fund receives a flat 5% of company revenue** — calculated *after* seller commission is taken out, and never deducted from the seller's own earnings. This keeps seller income stable and the fund's growth predictable and separate.
+---
 
-## AI Sales Assistant
+## 💰 Revenue & Commission Structure
 
-The Employee dashboard's chat calls `pages/api/ai-assistant.js`, which talks to xAI's Grok API and provides:
+- Each product category has its own seller commission % (software licenses margin higher than telecom data bundles, for example).
+- The **Education Fund gets a flat 5% of company revenue** — calculated *after* seller commission, and never deducted from the seller's earnings. Seller income stays stable; fund growth stays predictable.
 
-- **Product recommendations** — contextual to the seller's assigned product.
-- **Sales script generation** — ready-to-say pitch lines for a customer conversation.
-- **FAQ / objection handling** — answers to common customer pushback.
-- **Reliability-first fallback** — if the Grok call fails or no key is configured, an instant rule-based reply is returned instead of an error, so the demo (or a live seller mid-conversation) never breaks.
+---
 
-Voice input/output was originally scoped but isn't wired up yet — the mic button was removed deliberately rather than shipping something half-working. It remains a near-term roadmap item.
+## 🤖 AI Sales Assistant
 
-## Public Impact Page
+`pages/api/ai-assistant.js` talks to xAI's Grok API and gives sellers:
 
-`/impact` is a public, no-login page showing real, live numbers pulled from Supabase: sellers employed, sales completed, total commissions paid out, and total Education Fund contribution. It calls a `security definer` SQL function (`get_platform_impact`, defined in `schema.sql`) so that anonymous visitors only ever see these 4 aggregate numbers — never any individual user's row-level data. It's linked from the storefront footer as "Our impact," and exists specifically because the Education Fund's credibility depends on visible proof that it's actually growing.
+- 🎯 **Product recommendations** — contextual to their assigned product
+- 💬 **Sales script generation** — ready-to-say pitch lines
+- ❓ **FAQ / objection handling** — answers to common pushback
+- 🛟 **Reliability-first fallback** — if Grok fails or no key is set, an instant rule-based reply fires instead of an error, so a live demo (or a real seller mid-chat) never breaks
 
-## End-to-End Test Flow
+Voice input/output was scoped but isn't wired up yet — the mic button was deliberately removed rather than shipped half-working. Near-term roadmap item.
 
-Run through this once after setup to see the whole product work together:
+---
 
-1. Sign up as a customer, then promote that account to **admin** as described in [Security Model](#security-model) → log out.
-2. Sign up as an **employee** (this auto-creates a Pending application) → log out.
-3. Log in as **admin** at `/login` → approve the employee's application, assigning a product.
-4. Log in as the **employee** → under "Just sold to a customer? Confirm it here," fill in the customer's details, attach a payment screenshot, and submit. This creates a **Pending** sale request — no commission yet.
-5. Log in as **admin** → open **Sale requests (payment screenshot approval)** → "View screenshot" to check proof of payment → Approve (or Reject).
-6. Log in as the **employee** again → the commission summary now updates, reflecting only Admin-approved sales.
-7. Visit `/impact` (no login needed) to see the same activity reflected in the platform's public numbers.
+## 📊 Public Impact Page
 
-## Roadmap
+`/impact` — a public, no-login page with real, live numbers: sellers employed, sales completed, commissions paid, Education Fund total. Powered by a `security definer` SQL function (`get_platform_impact`) so anonymous visitors see only 4 aggregate numbers — **zero row-level data exposure.** Linked from the storefront footer as "Our impact," because the Education Fund's credibility depends on visible, live proof it's actually growing.
 
-**Immediate next steps**
-- Wire up the in-app voice assistant (Speech-to-Text → AI → Text-to-Speech), replacing the removed mic button.
-- AI first-level pre-check on new seller applications (CNIC/NGO-reference format check) before they reach the Admin queue.
-- A seller-selection dropdown at storefront checkout (currently auto-assigned to keep the MVP simple).
+---
 
-**Standard e-commerce essentials**
-- Real payment gateways (JazzCash, Easypaisa, card, bank transfer) — checkout is currently mock/manual.
-- Inventory/vendor management, invoicing, coupons, product reviews, SEO.
-- Returns/disputes, Terms of Service / Privacy Policy pages, a customer helpdesk, and a BI/analytics dashboard.
+## ✅ End-to-End Test Flow
 
-**Seller-focused (low-income context)**
-- Mobile-wallet payouts for sellers without a bank account.
-- Low-data / SMS fallback mode, and simple audio/video training material.
-- A tiered commission / growth path for long-tenured sellers.
+1. Sign up as a customer → promote to **admin** (see [Security Model](#-security-model)) → log out.
+2. Sign up as an **employee** (auto-creates a Pending application) → log out.
+3. Log in as **admin** → approve the employee's application, assigning a product.
+4. Log in as **employee** → "Confirm sale" with customer details + payment screenshot → creates a Pending sale request.
+5. Log in as **admin** → open **Sale requests** → view screenshot → Approve / Reject.
+6. Log in as **employee** again → commission summary updates for approved sales only.
+7. Visit `/impact` (no login) → see the same activity reflected in the live public numbers.
 
-**Business & compliance**
-- Business registration and tax compliance (SECP, etc.), vendor/supplier contracts.
-- KYC/AML compliance if payment volume grows; liability coverage for seller-side fraud.
-- Full WhatsApp Business API integration for off-website voice/text access.
+---
 
-**New revenue line — in-house AI tools for shops (Phase 2)**
-Beyond reselling third-party licenses, Rozgar's Phase 2 plan has the platform build and sell its own lightweight AI tools to small shopkeepers on a recurring subscription basis — using the same seller network to pitch and onboard shop owners. This turns a one-time resale commission model into a recurring-revenue business line, feeding the same Education Fund from a second, more stable source.
+## 🗺️ Roadmap
 
-## Team
+<details>
+<summary><b>🔜 Immediate next steps</b></summary>
 
-Rozgar was built by a 6-member team with clearly divided ownership: frontend for the customer experience, frontend for the employee/admin dashboards, backend/database, AI integration, voice (in progress), and pitch/demo/data coordination — structured deliberately like departments in a real company rather than an undifferentiated group project.
+- Wire up the in-app voice assistant (Speech-to-Text → AI → Text-to-Speech)
+- AI first-level pre-check on new seller applications (CNIC/NGO-reference format check)
+- Seller-selection dropdown at storefront checkout (currently auto-assigned)
+</details>
 
-## Notes & Known Limitations
+<details>
+<summary><b>🛒 Standard e-commerce essentials</b></summary>
 
-- Checkout currently auto-assigns an approved seller for the chosen product to keep the MVP simple; a seller-selection dropdown is a straightforward addition later.
-- Voice input/output is intentionally not wired up (see [Roadmap](#roadmap)) rather than shipped in a broken state.
-- The AI pre-check on new seller applications does not exist yet — every application is reviewed directly by a human Admin in this MVP.
+- Real payment gateways (JazzCash, Easypaisa, card, bank transfer)
+- Inventory/vendor management, invoicing, coupons, product reviews, SEO
+- Returns/disputes, ToS/Privacy pages, helpdesk, BI/analytics dashboard
+</details>
+
+<details>
+<summary><b>🤝 Seller-focused (low-income context)</b></summary>
+
+- Mobile-wallet payouts for sellers without a bank account
+- Low-data / SMS fallback mode + simple audio/video training material
+- Tiered commission / growth path for long-tenured sellers
+</details>
+
+<details>
+<summary><b>🏛️ Business & compliance</b></summary>
+
+- Business registration & tax compliance (SECP, etc.), vendor/supplier contracts
+- KYC/AML compliance at scale; liability coverage for seller-side fraud
+- Full WhatsApp Business API integration for off-website access
+</details>
+
+<details>
+<summary><b>💡 New revenue line — in-house AI tools for shops (Phase 2)</b></summary>
+
+Beyond reselling third-party licenses, Phase 2 has Rozgar build and sell its own lightweight AI tools to small shopkeepers on recurring subscription — using the same seller network to pitch and onboard shop owners. One-time resale commission → recurring SaaS revenue, feeding the same Education Fund from a second, more stable source.
+</details>
+
+---
+
+## 👥 Team
+
+Built by a 6-member team with clearly divided ownership — customer-facing frontend, employee/admin dashboards, backend/database, AI integration, voice (in progress), and pitch/demo/data coordination — structured like departments in a real company, not an undifferentiated group project.
+
+---
+
+## ⚠️ Notes & Known Limitations
+
+> ⚠️ **Everything is currently public / unverified.** As of this build, the `/admin` route and seller (employee) account creation are **not gated by any real verification** — anyone can reach the admin panel, and a seller account can be created without going through an actual identity/approval check. Fine for a hackathon demo, but a **must-fix before any real deployment**: lock `/admin` behind real authentication + role checks (frontend route guard *and* Supabase RLS), and require genuine Admin approval before any dashboard access is granted, not just before commissions are paid out.
+
+- Checkout currently auto-assigns an approved seller for the chosen product to keep the MVP simple.
+- Voice input/output is intentionally not wired up rather than shipped in a broken state.
+- The AI pre-check on new seller applications doesn't exist yet — every application is reviewed directly by a human Admin.
+
+<div align="center">
+
+---
+
+**Rozgar** — *Create income today, educate the next generation tomorrow.* 🌱
+
+</div>
