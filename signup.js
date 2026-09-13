@@ -57,7 +57,8 @@ export default function Signup() {
 
     setLoading(false);
 
-    if (role === 'employee') router.push('/employee');
+    if (role === 'admin') router.push('/admin');
+    else if (role === 'employee') router.push('/employee');
     else router.push('/'); // customers land on the shop (home page)
   }
 
@@ -95,6 +96,10 @@ export default function Signup() {
               <option value="customer">Customer (buy products)</option>
               <option value="employee">Seller (resell products & earn commission)</option>
             </select>
+            <p style={{ fontSize: 13, color: '#777' }}>
+              Admin accounts aren't self-serve — ask an existing Admin, or see the README for how
+              to create the first one.
+            </p>
 
             <label>City</label>
             <input value={city} onChange={(e) => setCity(e.target.value)} />

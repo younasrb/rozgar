@@ -12,13 +12,13 @@ import {
   deleteProduct,
   uploadProductImage,
   getApprovedSellersFull,
-  getAllSellerProducts,
-  approveProductRequest,
-  rejectProductRequest,
+  adminSetAssignedProduct,
+  approveProductChange,
+  rejectProductChange,
   getPendingSaleRequests,
+  getScreenshotSignedUrl,
   approveSaleRequest,
   rejectSaleRequest,
-  getSignedScreenshotUrl,
 } from '../../lib/api';
 
 const CATEGORY_OPTIONS = ['Antivirus/Security', 'Online Course', 'Mobile Data'];
@@ -28,15 +28,15 @@ export default function AdminDashboard() {
   const [user, setUser] = useState(null);
   const [applications, setApplications] = useState([]);
   const [sellers, setSellers] = useState([]);
-  const [sellerProducts, setSellerProducts] = useState([]); // flat list of seller_products rows (all sellers)
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState(null);
   const [assignSelections, setAssignSelections] = useState({}); // { [applicationId]: productId }
-  const [requestActionId, setRequestActionId] = useState(null); // seller_products row id currently being approved/rejected
-  const [saleRequests, setSaleRequests] = useState([]); // Pending sale_requests waiting for payment-screenshot review
-  const [saleRequestActionId, setSaleRequestActionId] = useState(null);
-  const [screenshotLoadingId, setScreenshotLoadingId] = useState(null);
+  const [sellerSelections, setSellerSelections] = useState({}); // { [applicationId]: productId } for the Employees panel
+  const [sellerActionId, setSellerActionId] = useState(null);
+
+  const [saleRequests, setSaleRequests] = useState([]);
+  const [saleActionId, setSaleActionId] = useState(null);
 
   useEffect(() => {
     // Once products are loaded, pre-fill each pending application's assign-dropdown
@@ -84,55 +84,51 @@ export default function AdminDashboard() {
       await refreshApplications();
       await refreshProducts();
       await refreshSellers();
-      await refreshSellerProducts();
       await refreshSaleRequests();
       setLoading(false);
     }
     load();
   }, [router]);
 
-  async function refreshApplications() {
-    const res = await getPendingApplications();
-    if (res.success) setApplications(res.applications);
-  }
-
   async function refreshSaleRequests() {
     const res = await getPendingSaleRequests();
-    if (res.success) setSaleRequests(res.saleRequests);
+    if (res.success) setSaleRequests(res.requests);
   }
 
   async function handleViewScreenshot(path) {
-    setScreenshotLoadingId(path);
-    const res = await getSignedScreenshotUrl(path);
-    setScreenshotLoadingId(null);
-    if (!res.success) {
+    const res = await getScreenshotSignedUrl(path);
+    if (res.success) {
+      window.open(res.url, '_blank', 'noopener,noreferrer');
+    } else {
       alert(`Couldn't load screenshot: ${res.error}`);
-      return;
     }
-    window.open(res.url, '_blank', 'noopener,noreferrer');
   }
 
-  async function handleApproveSaleRequest(id) {
-    setSaleRequestActionId(id);
-    const res = await approveSaleRequest(id);
-    setSaleRequestActionId(null);
+  async function handleApproveSale(requestId) {
+    setSaleActionId(requestId);
+    const res = await approveSaleRequest(requestId);
+    setSaleActionId(null);
     if (!res.success) {
-      alert(res.error);
+      alert(`Couldn't approve: ${res.error}`);
       return;
     }
     await refreshSaleRequests();
   }
 
-  async function handleRejectSaleRequest(id) {
-    if (!confirm('Reject this sale request? No commission will be credited for it.')) return;
-    setSaleRequestActionId(id);
-    const res = await rejectSaleRequest(id);
-    setSaleRequestActionId(null);
+  async function handleRejectSale(requestId) {
+    setSaleActionId(requestId);
+    const res = await rejectSaleRequest(requestId);
+    setSaleActionId(null);
     if (!res.success) {
-      alert(res.error);
+      alert(`Couldn't reject: ${res.error}`);
       return;
     }
     await refreshSaleRequests();
+  }
+
+  async function refreshApplications() {
+    const res = await getPendingApplications();
+    if (res.success) setApplications(res.applications);
   }
 
   async function refreshProducts() {
@@ -145,25 +141,30 @@ export default function AdminDashboard() {
     if (res.success) setSellers(res.applications);
   }
 
-  async function refreshSellerProducts() {
-    const res = await getAllSellerProducts();
-    if (res.success) setSellerProducts(res.sellerProducts);
+  async function handleChangeSellerProduct(applicationId) {
+    const productId = sellerSelections[applicationId];
+    if (!productId) return;
+    setSellerActionId(applicationId);
+    const res = await adminSetAssignedProduct(applicationId, productId);
+    if (!res.success) alert(res.error);
+    await refreshSellers();
+    setSellerActionId(null);
   }
 
-  async function handleApproveProductRequest(id) {
-    setRequestActionId(id);
-    const res = await approveProductRequest(id);
+  async function handleApproveProductChange(applicationId, productId) {
+    setSellerActionId(applicationId);
+    const res = await approveProductChange(applicationId, productId);
     if (!res.success) alert(res.error);
-    await refreshSellerProducts();
-    setRequestActionId(null);
+    await refreshSellers();
+    setSellerActionId(null);
   }
 
-  async function handleRejectProductRequest(id) {
-    setRequestActionId(id);
-    const res = await rejectProductRequest(id);
+  async function handleRejectProductChange(applicationId, currentAssignedProductId) {
+    setSellerActionId(applicationId);
+    const res = await rejectProductChange(applicationId, currentAssignedProductId);
     if (!res.success) alert(res.error);
-    await refreshSellerProducts();
-    setRequestActionId(null);
+    await refreshSellers();
+    setSellerActionId(null);
   }
 
   async function handleApprove(id) {
@@ -177,7 +178,6 @@ export default function AdminDashboard() {
     if (!res.success) alert(res.error);
     await refreshApplications();
     await refreshSellers();
-    await refreshSellerProducts();
     setActionId(null);
   }
 
@@ -347,68 +347,16 @@ export default function AdminDashboard() {
       </header>
 
       <div className="page">
-        <h1>Admin dashboard</h1>
+        <h1>Seller applications</h1>
 
         <section className="stats-row">
           <div className="stat-card highlight">
             <span className="stat-label">Pending review</span>
             <span className="stat-value">{applications.length}</span>
           </div>
-          <div className="stat-card highlight">
-            <span className="stat-label">Sale requests to review</span>
-            <span className="stat-value">{saleRequests.length}</span>
-          </div>
         </section>
 
         <section className="panel">
-          <h2>Sale requests (payment screenshot approval)</h2>
-          {saleRequests.length === 0 ? (
-            <p className="empty-state">No sale requests waiting for review right now.</p>
-          ) : (
-            <div className="app-list">
-              {saleRequests.map((sr) => (
-                <div key={sr.id} className="app-row" style={{ flexWrap: 'wrap' }}>
-                  <div className="app-info">
-                    <strong>{sr.seller?.full_name || 'Unknown seller'}</strong>
-                    <span className="app-meta">
-                      Sold: {sr.product?.name || sr.product_id} · Rs. {Number(sr.price).toFixed(0)}
-                    </span>
-                    <span className="app-meta">
-                      Customer: {sr.customer_name}
-                      {sr.customer_phone ? ` · ${sr.customer_phone}` : ''}
-                    </span>
-                  </div>
-                  <button
-                    className="edit-btn"
-                    onClick={() => handleViewScreenshot(sr.payment_screenshot_path)}
-                    disabled={screenshotLoadingId === sr.payment_screenshot_path}
-                  >
-                    {screenshotLoadingId === sr.payment_screenshot_path ? 'Loading…' : '🖼️ View screenshot'}
-                  </button>
-                  <div className="app-actions">
-                    <button
-                      className="approve-btn"
-                      disabled={saleRequestActionId === sr.id}
-                      onClick={() => handleApproveSaleRequest(sr.id)}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      className="reject-btn"
-                      disabled={saleRequestActionId === sr.id}
-                      onClick={() => handleRejectSaleRequest(sr.id)}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="panel" style={{ marginTop: 20 }}>
-          <h2>Seller applications</h2>
           {applications.length === 0 ? (
             <p className="empty-state">No pending applications right now.</p>
           ) : (
@@ -465,55 +413,118 @@ export default function AdminDashboard() {
         </section>
 
         <section className="panel" style={{ marginTop: 20 }}>
+          <h2>Sale requests (payment screenshot approval)</h2>
+          {saleRequests.length === 0 ? (
+            <p className="empty-state">No pending sale requests right now.</p>
+          ) : (
+            <div className="app-list">
+              {saleRequests.map((r) => (
+                <div key={r.id} className="app-row">
+                  <div className="app-info">
+                    <strong>{r.customer_name}</strong>
+                    <span className="app-meta">
+                      {r.seller?.full_name || 'Unknown seller'} sold {r.product?.name || r.product_id} for Rs. {r.price}
+                      {r.customer_phone ? ` · ${r.customer_phone}` : ''}
+                    </span>
+                  </div>
+                  <span className="badge badge-pending">{r.status}</span>
+                  <button
+                    className="reject-btn"
+                    style={{ background: '#eef2f2', color: '#1f4e5f' }}
+                    onClick={() => handleViewScreenshot(r.payment_screenshot_path)}
+                  >
+                    View screenshot
+                  </button>
+                  <div className="app-actions">
+                    <button
+                      className="approve-btn"
+                      disabled={saleActionId === r.id}
+                      onClick={() => handleApproveSale(r.id)}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      className="reject-btn"
+                      disabled={saleActionId === r.id}
+                      onClick={() => handleRejectSale(r.id)}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="panel" style={{ marginTop: 20 }}>
           <h2>Employees (Approved sellers)</h2>
           {sellers.length === 0 ? (
             <p className="empty-state">No approved sellers yet.</p>
           ) : (
             <div className="app-list">
               {sellers.map((s) => {
-                const rowsForSeller = sellerProducts.filter((sp) => sp.seller_id === s.user_id);
-                const approvedRows = rowsForSeller.filter((sp) => sp.status === 'Approved');
-                const pendingRows = rowsForSeller.filter((sp) => sp.status === 'Pending');
+                const hasChangeRequest =
+                  s.requested_product_id && s.requested_product_id !== s.assigned_product_id;
+                const assignedProduct = products.find((p) => p.id === s.assigned_product_id);
+                const requestedProduct = products.find((p) => p.id === s.requested_product_id);
 
                 return (
-                  <div key={s.id} className="app-row" style={{ flexWrap: 'wrap' }}>
+                  <div key={s.id} className="app-row">
                     <div className="app-info">
                       <strong>{s.full_name}</strong>
                       <span className="app-meta">{s.city || 'City not given'}</span>
                       <span className="app-meta">
-                        Selling:{' '}
-                        {approvedRows.length > 0
-                          ? approvedRows
-                              .map((sp) => products.find((p) => p.id === sp.product_id)?.name || sp.product_id)
-                              .join(', ')
-                          : 'Nothing approved yet'}
+                        Selling: {assignedProduct ? assignedProduct.name : 'Not assigned'}
                       </span>
+                      {hasChangeRequest && (
+                        <span className="app-meta requested-tag">
+                          Wants to switch to: {requestedProduct ? requestedProduct.name : s.requested_product_id}
+                        </span>
+                      )}
                     </div>
 
-                    {pendingRows.length > 0 && (
-                      <div className="app-actions" style={{ flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                        {pendingRows.map((sp) => (
-                          <div key={sp.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                            <span className="app-meta requested-tag">
-                              Wants to add: {products.find((p) => p.id === sp.product_id)?.name || sp.product_id}
-                            </span>
-                            <button
-                              className="approve-btn"
-                              disabled={requestActionId === sp.id}
-                              onClick={() => handleApproveProductRequest(sp.id)}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              className="reject-btn"
-                              disabled={requestActionId === sp.id}
-                              onClick={() => handleRejectProductRequest(sp.id)}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        ))}
+                    {hasChangeRequest ? (
+                      <div className="app-actions">
+                        <button
+                          className="approve-btn"
+                          disabled={sellerActionId === s.id}
+                          onClick={() => handleApproveProductChange(s.id, s.requested_product_id)}
+                        >
+                          Approve switch
+                        </button>
+                        <button
+                          className="reject-btn"
+                          disabled={sellerActionId === s.id}
+                          onClick={() => handleRejectProductChange(s.id, s.assigned_product_id)}
+                        >
+                          Keep current
+                        </button>
                       </div>
+                    ) : (
+                      <>
+                        <select
+                          className="assign-select"
+                          value={sellerSelections[s.id] ?? s.assigned_product_id ?? ''}
+                          onChange={(e) =>
+                            setSellerSelections({ ...sellerSelections, [s.id]: e.target.value })
+                          }
+                        >
+                          <option value="">Not assigned</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} (#{p.id})
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          className="edit-btn"
+                          disabled={sellerActionId === s.id}
+                          onClick={() => handleChangeSellerProduct(s.id)}
+                        >
+                          {sellerActionId === s.id ? 'Saving…' : 'Save'}
+                        </button>
+                      </>
                     )}
                   </div>
                 );

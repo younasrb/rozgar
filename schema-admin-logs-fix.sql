@@ -1,3 +1,6 @@
+-- NOTE: this migration is now folded into schema.sql — a fresh setup only needs to run
+-- schema.sql. Keep this file only if you already ran it separately against an older deploy.
+
 -- ================================================================
 -- Rozgar — Admin Management + Activity Log Migration
 -- Run this ONCE in Supabase Dashboard > SQL Editor > New Query > Run.

@@ -24,6 +24,8 @@ export default function CustomerDashboard() {
   const [checkoutState, setCheckoutState] = useState('idle'); // idle | processing | done
   const [lastOrderImpact, setLastOrderImpact] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('default'); // default | price-asc | price-desc
 
   useEffect(() => {
     async function load() {
@@ -46,9 +48,53 @@ export default function CustomerDashboard() {
   }, [products]);
 
   const visibleProducts = useMemo(() => {
-    if (activeCategory === 'All') return products;
-    return products.filter((p) => p.category === activeCategory);
-  }, [products, activeCategory]);
+    let list = activeCategory === 'All' ? products : products.filter((p) => p.category === activeCategory);
+
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q)) ||
+          p.category.toLowerCase().includes(q)
+      );
+    }
+
+    if (sortBy === 'price-asc') list = [...list].sort((a, b) => a.price - b.price);
+    if (sortBy === 'price-desc') list = [...list].sort((a, b) => b.price - a.price);
+
+    return list;
+  }, [products, activeCategory, searchQuery, sortBy]);
+
+  // Group whatever is currently visible into { categoryName: [products] } sections,
+  // in the same order the category chips appear — this powers the category-wise layout below.
+  // When sorting or searching, we skip the per-category grouping and just show one flat list,
+  // since "cheapest first" only makes sense across everything, not re-sorted within each group.
+  const groupedProducts = useMemo(() => {
+    if (sortBy !== 'default' || searchQuery.trim()) {
+      return visibleProducts.length > 0 ? { __flat__: visibleProducts } : {};
+    }
+    const order = categories.filter((c) => c !== 'All');
+    const groups = {};
+    order.forEach((cat) => {
+      const items = visibleProducts.filter((p) => p.category === cat);
+      if (items.length > 0) groups[cat] = items;
+    });
+    return groups;
+  }, [visibleProducts, categories, sortBy, searchQuery]);
+
+  // A handful of products get a "Best Seller" ribbon — first product per category, just for visual interest.
+  const bestSellerIds = useMemo(() => {
+    const seen = new Set();
+    const ids = new Set();
+    products.forEach((p) => {
+      if (!seen.has(p.category)) {
+        seen.add(p.category);
+        ids.add(p.id);
+      }
+    });
+    return ids;
+  }, [products]);
 
   function addToCart(product) {
     setCart([...cart, product]);
@@ -98,7 +144,121 @@ export default function CustomerDashboard() {
     setCartOpen(false);
   }
 
-  if (loading) return <div className="loading-screen">Loading your marketplace…</div>;
+  if (loading) {
+    return (
+      <div className="shop">
+        <header className="shop-nav">
+          <div className="shop-nav-inner">
+            <span className="brand skeleton-text" style={{ width: 90 }}>&nbsp;</span>
+          </div>
+        </header>
+        <div className="skeleton-hero" />
+        <div className="skeleton-toolbar" />
+        <div className="skeleton-chips">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="skeleton-chip" />
+          ))}
+        </div>
+        <div className="skeleton-grid">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div key={i} className="skeleton-card">
+              <div className="skeleton-img" />
+              <div className="skeleton-line" style={{ width: '40%' }} />
+              <div className="skeleton-line" style={{ width: '80%', height: 16 }} />
+              <div className="skeleton-line" style={{ width: '60%' }} />
+            </div>
+          ))}
+        </div>
+
+        <style jsx>{`
+          .shop {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: #f2f6f3;
+            min-height: 100vh;
+          }
+          .shop-nav {
+            background: #1f4e5f;
+          }
+          .shop-nav-inner {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 16px 24px;
+          }
+          .skeleton-hero {
+            max-width: 1080px;
+            margin: 24px auto;
+            height: 120px;
+            border-radius: 14px;
+          }
+          .skeleton-toolbar {
+            max-width: 1080px;
+            margin: 0 auto 16px;
+            padding: 0 24px;
+            height: 44px;
+            border-radius: 10px;
+          }
+          .skeleton-chips {
+            max-width: 1080px;
+            margin: 0 auto 24px;
+            padding: 0 24px;
+            display: flex;
+            gap: 10px;
+          }
+          .skeleton-chip {
+            width: 90px;
+            height: 32px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          .skeleton-grid {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 0 24px 48px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 18px;
+          }
+          .skeleton-card {
+            background: white;
+            border-radius: 16px;
+            padding: 22px;
+          }
+          .skeleton-img {
+            height: 140px;
+            border-radius: 10px;
+            margin-bottom: 14px;
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          .skeleton-line {
+            height: 10px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          .skeleton-hero,
+          .skeleton-toolbar {
+            background: linear-gradient(90deg, #e4ece9 25%, #eef4f1 37%, #e4ece9 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.4s ease infinite;
+          }
+          @keyframes shimmer {
+            0% {
+              background-position: 100% 0;
+            }
+            100% {
+              background-position: -100% 0;
+            }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return (
     <div className="shop">
@@ -124,8 +284,8 @@ export default function CustomerDashboard() {
                 Log out
               </button>
             ) : (
-              <Link href="/login" className="link-btn staff-link">
-                Staff Login
+              <Link href="/login" className="staff-link">
+                Join as Affiliate
               </Link>
             )}
           </nav>
@@ -142,12 +302,61 @@ export default function CustomerDashboard() {
         </div>
         <div className="hero-mark" aria-hidden="true">
           <svg viewBox="0 0 200 200" width="180" height="180">
-            <circle cx="100" cy="100" r="92" fill="#DCEAEA" />
-            <path d="M60 96 L100 72 L140 96 L100 120 Z" fill="#1F4E5F" />
-            <rect x="94" y="118" width="12" height="34" rx="3" fill="#1F4E5F" />
-            <circle cx="140" cy="96" r="6" fill="#E8A33D" />
+            <defs>
+              <radialGradient id="circleGrad" cx="35%" cy="30%" r="75%">
+                <stop offset="0%" stopColor="#EAF4F4" />
+                <stop offset="60%" stopColor="#D3E6E6" />
+                <stop offset="100%" stopColor="#B9D5D5" />
+              </radialGradient>
+              <linearGradient id="capGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#2A6178" />
+                <stop offset="100%" stopColor="#163540" />
+              </linearGradient>
+              <linearGradient id="postGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stopColor="#2A6178" />
+                <stop offset="100%" stopColor="#163540" />
+              </linearGradient>
+              <radialGradient id="beadGrad" cx="35%" cy="30%" r="70%">
+                <stop offset="0%" stopColor="#F6C871" />
+                <stop offset="100%" stopColor="#D1912F" />
+              </radialGradient>
+              <filter id="capShadow" x="-40%" y="-40%" width="180%" height="180%">
+                <feDropShadow dx="0" dy="6" stdDeviation="6" floodColor="#0f2a33" floodOpacity="0.35" />
+              </filter>
+            </defs>
+
+            <circle cx="100" cy="100" r="92" fill="url(#circleGrad)" />
+            <ellipse cx="72" cy="62" rx="38" ry="20" fill="white" opacity="0.35" />
+
+            <g filter="url(#capShadow)">
+              <path d="M60 96 L100 72 L140 96 L100 120 Z" fill="url(#capGrad)" />
+              <rect x="94" y="118" width="12" height="34" rx="3" fill="url(#postGrad)" />
+              <circle cx="140" cy="96" r="6" fill="url(#beadGrad)" />
+            </g>
           </svg>
         </div>
+      </section>
+
+      <section className="toolbar">
+        <div className="search-box">
+          <span className="search-icon">🔍</span>
+          <input
+            type="text"
+            placeholder="Search products…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button className="clear-search" onClick={() => setSearchQuery('')} aria-label="Clear search">
+              ✕
+            </button>
+          )}
+        </div>
+        <select className="sort-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="default">Sort: Featured</option>
+          <option value="price-asc">Price: Low to High</option>
+          <option value="price-desc">Price: High to Low</option>
+        </select>
       </section>
 
       <section className="categories">
@@ -164,29 +373,49 @@ export default function CustomerDashboard() {
       </section>
 
       <section className="product-grid">
-        {visibleProducts.map((p) => {
-          const fundShare = (p.price * FUND_RATE_DISPLAY).toFixed(0);
-          return (
-            <article key={p.id} className="product-card">
-              {p.image_url ? (
-                <img src={p.image_url} alt={p.name} className="product-image" />
-              ) : (
-                <div className="product-icon">{CATEGORY_ICONS[p.category] || '🛒'}</div>
-              )}
-              <span className="product-category">{p.category}</span>
-              <h3>{p.name}</h3>
-              <p className="product-desc">{p.description}</p>
-              <div className="product-footer">
-                <span className="price">Rs. {p.price}</span>
-                <button className="add-btn" onClick={() => addToCart(p)}>Add to cart</button>
-              </div>
-              <p className="impact-line">≈ Rs. {fundShare} of this goes to the education fund</p>
-            </article>
-          );
-        })}
-        {visibleProducts.length === 0 && (
-          <p className="empty-state">No products in this category yet.</p>
+        {Object.keys(groupedProducts).length === 0 && (
+          <p className="empty-state">No products match your search.</p>
         )}
+        {Object.entries(groupedProducts).map(([cat, items], groupIndex) => (
+          <div
+            key={cat}
+            className="category-section"
+            style={{ '--group-delay': `${groupIndex * 90}ms` }}
+          >
+            {cat !== '__flat__' && (
+              <h2 className="category-title">
+                <span>{CATEGORY_ICONS[cat] || '🛒'}</span> {cat}
+              </h2>
+            )}
+            <div className="category-row">
+              {items.map((p, i) => {
+                const fundShare = (p.price * FUND_RATE_DISPLAY).toFixed(0);
+                return (
+                  <article
+                    key={p.id}
+                    className="product-card"
+                    style={{ '--card-delay': `${groupIndex * 90 + i * 70}ms` }}
+                  >
+                    {bestSellerIds.has(p.id) && <span className="best-seller-badge">🔥 Best Seller</span>}
+                    {p.image_url ? (
+                      <img src={p.image_url} alt={p.name} className="product-image" />
+                    ) : (
+                      <div className="product-icon">{CATEGORY_ICONS[p.category] || '🛒'}</div>
+                    )}
+                    <span className="product-category">{p.category}</span>
+                    <h3>{p.name}</h3>
+                    <p className="product-desc">{p.description}</p>
+                    <div className="product-footer">
+                      <span className="price">Rs. {p.price}</span>
+                      <button className="add-btn" onClick={() => addToCart(p)}>Add to cart</button>
+                    </div>
+                    <p className="impact-line">≈ Rs. {fundShare} of this goes to the education fund</p>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </section>
 
       {orderHistory.length > 0 && (
@@ -261,6 +490,35 @@ export default function CustomerDashboard() {
           </>
         )}
       </aside>
+
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <div className="footer-brand">
+            <span className="brand">Rozgar</span>
+            <p>Everyday essentials sold by people building an income, with a share of every sale funding a child's education.</p>
+          </div>
+          <div className="footer-col">
+            <h4>Company</h4>
+            <a href="#">About us</a>
+            <Link href="/impact">Our impact</Link>
+            <a href="/login">Sell on Rozgar</a>
+          </div>
+          <div className="footer-col">
+            <h4>Support</h4>
+            <a href="#">Contact us</a>
+            <a href="#">FAQs</a>
+            <a href="#">Track an order</a>
+          </div>
+          <div className="footer-col">
+            <h4>Legal</h4>
+            <a href="#">Terms of service</a>
+            <a href="#">Privacy policy</a>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          © {new Date().getFullYear()} Rozgar. All rights reserved.
+        </div>
+      </footer>
 
       <style jsx>{`
         .shop {
@@ -356,6 +614,61 @@ export default function CustomerDashboard() {
           color: white;
         }
 
+        .staff-link {
+          position: relative;
+          overflow: hidden;
+          background: linear-gradient(135deg, #e8a33d, #d1912f);
+          color: white;
+          font-size: 13px;
+          font-weight: 600;
+          text-decoration: none;
+          padding: 8px 18px;
+          border-radius: 999px;
+          box-shadow: 0 2px 8px rgba(232, 163, 61, 0.35);
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          white-space: nowrap;
+          animation: staffPulse 2.4s ease-in-out infinite;
+        }
+
+        .staff-link::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -60%;
+          width: 40%;
+          height: 100%;
+          background: linear-gradient(120deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+          transform: skewX(-20deg);
+          animation: staffShine 2.6s ease-in-out infinite;
+        }
+
+        .staff-link:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 16px rgba(232, 163, 61, 0.55);
+          animation-play-state: paused;
+        }
+
+        @keyframes staffPulse {
+          0%, 100% {
+            box-shadow: 0 2px 8px rgba(232, 163, 61, 0.35);
+          }
+          50% {
+            box-shadow: 0 2px 16px rgba(232, 163, 61, 0.7);
+          }
+        }
+
+        @keyframes staffShine {
+          0% {
+            left: -60%;
+          }
+          55% {
+            left: 130%;
+          }
+          100% {
+            left: 130%;
+          }
+        }
+
         .hero {
           max-width: 1080px;
           margin: 0 auto;
@@ -382,6 +695,69 @@ export default function CustomerDashboard() {
 
         .hero-mark {
           flex-shrink: 0;
+          animation: heroFloat 4s ease-in-out infinite;
+        }
+
+        @keyframes heroFloat {
+          0%, 100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-8px);
+          }
+        }
+
+        .toolbar {
+          max-width: 1080px;
+          margin: 0 auto;
+          padding: 0 24px 16px;
+          display: flex;
+          gap: 12px;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+
+        .search-box {
+          flex: 1;
+          min-width: 220px;
+          display: flex;
+          align-items: center;
+          background: white;
+          border: 1px solid #dde5e5;
+          border-radius: 10px;
+          padding: 0 12px;
+        }
+
+        .search-icon {
+          font-size: 14px;
+          opacity: 0.6;
+        }
+
+        .search-box input {
+          flex: 1;
+          border: none;
+          outline: none;
+          padding: 10px 8px;
+          font-size: 14px;
+          background: transparent;
+        }
+
+        .clear-search {
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: #7a8a8d;
+          font-size: 14px;
+          padding: 4px;
+        }
+
+        .sort-select {
+          padding: 10px 12px;
+          border: 1px solid #dde5e5;
+          border-radius: 10px;
+          font-size: 14px;
+          background: white;
+          color: #22282a;
         }
 
         .categories {
@@ -401,6 +777,15 @@ export default function CustomerDashboard() {
           font-size: 14px;
           cursor: pointer;
           color: #22282a;
+          transition: transform 0.15s ease, background 0.2s ease, color 0.2s ease;
+        }
+
+        .chip:hover {
+          transform: translateY(-2px);
+        }
+
+        .chip:active {
+          transform: scale(0.96);
         }
 
         .chip-active {
@@ -413,17 +798,91 @@ export default function CustomerDashboard() {
           max-width: 1080px;
           margin: 0 auto;
           padding: 0 24px 48px;
+          display: flex;
+          flex-direction: column;
+          gap: 36px;
+        }
+
+        .category-section {
+          animation: sectionFadeIn 0.5s ease both;
+          animation-delay: var(--group-delay, 0ms);
+        }
+
+        .category-title {
+          font-family: 'Fraunces', serif;
+          font-size: 20px;
+          color: #1f4e5f;
+          margin: 0 0 14px 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .category-row {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
           gap: 18px;
+          perspective: 1000px;
+        }
+
+        @keyframes sectionFadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: none;
+          }
+        }
+
+        @keyframes cardFadeSlideUp {
+          from {
+            opacity: 0;
+            transform: translateY(18px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: none;
+          }
         }
 
         .product-card {
+          position: relative;
           background: white;
-          border-radius: 14px;
+          border-radius: 16px;
           padding: 22px;
           display: flex;
           flex-direction: column;
+          animation: cardFadeSlideUp 0.5s ease both;
+          animation-delay: var(--card-delay, 0ms);
+          transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+          border: 1px solid #eef2f2;
+          transform-style: preserve-3d;
+          will-change: transform;
+          overflow: hidden;
+        }
+
+        .product-card:hover {
+          transform: perspective(900px) rotateX(3deg) rotateY(-3deg) translateY(-10px) scale(1.025);
+          box-shadow: 0 24px 40px -12px rgba(31, 78, 95, 0.28), 0 8px 16px rgba(31, 78, 95, 0.1);
+          border-color: #cfe0e0;
+          z-index: 2;
+        }
+
+        .best-seller-badge {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          background: linear-gradient(135deg, #e8a33d, #d1912f);
+          color: white;
+          font-size: 11px;
+          font-weight: 700;
+          padding: 4px 10px;
+          border-radius: 999px;
+          box-shadow: 0 2px 6px rgba(232, 163, 61, 0.4);
+          z-index: 1;
         }
 
         .product-icon {
@@ -437,12 +896,25 @@ export default function CustomerDashboard() {
           object-fit: cover;
           border-radius: 10px;
           margin-bottom: 10px;
+          transition: transform 0.4s ease;
+        }
+
+        .product-card:hover .product-image {
+          transform: scale(1.06);
         }
 
         .product-category {
-          font-size: 12px;
-          color: #7a8a8d;
-          margin-bottom: 4px;
+          display: inline-block;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.03em;
+          text-transform: uppercase;
+          color: #1f4e5f;
+          background: #eaf2f0;
+          padding: 3px 10px;
+          border-radius: 999px;
+          margin-bottom: 8px;
+          align-self: flex-start;
         }
 
         .product-card h3 {
@@ -464,8 +936,9 @@ export default function CustomerDashboard() {
         }
 
         .price {
-          font-weight: 600;
-          font-size: 16px;
+          font-weight: 700;
+          font-size: 18px;
+          color: #1f4e5f;
         }
 
         .add-btn {
@@ -477,10 +950,12 @@ export default function CustomerDashboard() {
           font-weight: 600;
           cursor: pointer;
           font-size: 14px;
+          transition: transform 0.15s ease, background 0.2s ease;
         }
 
         .add-btn:hover {
           background: #d1912f;
+          transform: translateY(-2px);
         }
 
         .add-btn:disabled {
@@ -498,6 +973,70 @@ export default function CustomerDashboard() {
           color: #1f4e5f;
           margin-top: 10px;
           margin-bottom: 0;
+        }
+
+        .site-footer {
+          background: #163540;
+          color: #cfe0e0;
+          margin-top: 60px;
+        }
+
+        .footer-inner {
+          max-width: 1080px;
+          margin: 0 auto;
+          padding: 44px 24px 28px;
+          display: grid;
+          grid-template-columns: 1.6fr 1fr 1fr 1fr;
+          gap: 24px;
+        }
+
+        .footer-brand .brand {
+          color: white;
+          font-family: 'Fraunces', serif;
+          font-size: 20px;
+        }
+
+        .footer-brand p {
+          margin-top: 10px;
+          font-size: 13px;
+          line-height: 1.6;
+          color: #9db8bd;
+          max-width: 280px;
+        }
+
+        .footer-col h4 {
+          color: white;
+          font-size: 13px;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          margin-bottom: 12px;
+        }
+
+        .footer-col a {
+          display: block;
+          color: #9db8bd;
+          font-size: 14px;
+          text-decoration: none;
+          margin-bottom: 8px;
+          transition: color 0.2s ease;
+        }
+
+        .footer-col a:hover {
+          color: white;
+        }
+
+        .footer-bottom {
+          border-top: 1px solid rgba(255, 255, 255, 0.1);
+          padding: 16px 24px;
+          text-align: center;
+          font-size: 12px;
+          color: #7f9aa0;
+        }
+
+        @media (max-width: 640px) {
+          .footer-inner {
+            grid-template-columns: 1fr 1fr;
+          }
         }
 
         .order-history {

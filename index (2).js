@@ -2,16 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { getCurrentUser, signOut } from '../../lib/auth';
-import {
-  getProducts,
-  getCommissionSummary,
-  getMyApplication,
-  getSellerProducts,
-  requestAddProduct,
-  uploadPaymentScreenshot,
-  requestSale,
-  getMySaleRequests,
-} from '../../lib/api';
+import { getProducts, getCommissionSummary, getMyApplication, requestProductChange, createSaleRequest, getMySaleRequests } from '../../lib/api';
 
 const CATEGORY_ICONS = {
   'Antivirus/Security': '🛡️',
@@ -38,7 +29,7 @@ function getFallbackResponse(text) {
 export default function EmployeeDashboard() {
   const router = useRouter();
   const [user, setUser] = useState(null);
-  const [products, setProducts] = useState([]); // all of this seller's APPROVED products (can be many)
+  const [products, setProducts] = useState([]); // kept for backwards-compat, but only ever holds the ONE assigned product
   const [summary, setSummary] = useState({ totalSales: 0, totalCommission: 0, totalFundContribution: 0 });
   const [messages, setMessages] = useState([
     { from: 'ai', text: "Hi! Ask me what you should sell, or how to explain a product to a customer." },
@@ -47,20 +38,17 @@ export default function EmployeeDashboard() {
   const [loading, setLoading] = useState(true);
   const [applicationStatus, setApplicationStatus] = useState(null); // 'Pending' | 'Approved' | 'Rejected' | null
   const [application, setApplication] = useState(null);
-  const [allProducts, setAllProducts] = useState([]); // full catalog, used for the "add product" picker
-  const [sellerProducts, setSellerProducts] = useState({ approved: [], pending: [], rejected: [] });
-  const [addProductId, setAddProductId] = useState('');
-  const [addMsg, setAddMsg] = useState('');
-  const [adding, setAdding] = useState(false);
+  const [allProducts, setAllProducts] = useState([]); // full catalog, used for the "switch product" picker
+  const [switchProductId, setSwitchProductId] = useState('');
+  const [switchMsg, setSwitchMsg] = useState('');
+  const [switching, setSwitching] = useState(false);
 
-  const [saleProductId, setSaleProductId] = useState('');
   const [saleCustomerName, setSaleCustomerName] = useState('');
   const [saleCustomerPhone, setSaleCustomerPhone] = useState('');
-  const [screenshotFile, setScreenshotFile] = useState(null);
-  const [screenshotPreview, setScreenshotPreview] = useState(null);
+  const [saleScreenshot, setSaleScreenshot] = useState(null);
   const [recordingSale, setRecordingSale] = useState(false);
   const [saleMsg, setSaleMsg] = useState('');
-  const [saleRequests, setSaleRequests] = useState({ pending: [], approved: [], rejected: [] });
+  const [mySaleRequests, setMySaleRequests] = useState([]);
 
   useEffect(() => {
     async function load() {
@@ -83,26 +71,19 @@ export default function EmployeeDashboard() {
         return; // don't load products/commissions until approved
       }
 
-      // Sellers can now hold as many Admin-approved products as they like.
+      // Sellers only ever sell the ONE product the Admin assigned them.
       const productRes = await getProducts();
-      const sellerProdRes = await getSellerProducts(profile.id);
-      if (productRes.success) setAllProducts(productRes.products);
-      if (productRes.success && sellerProdRes.success) {
-        setSellerProducts(sellerProdRes);
-        const approvedIds = new Set(sellerProdRes.approved.map((r) => r.product_id));
-        // Fallback for sellers approved before this feature existed, whose first product
-        // may not yet have a seller_products row.
-        if (approvedIds.size === 0 && app.assigned_product_id) {
-          approvedIds.add(app.assigned_product_id);
-        }
-        setProducts(productRes.products.filter((p) => approvedIds.has(p.id)));
+      if (productRes.success) {
+        setAllProducts(productRes.products);
+        const assigned = productRes.products.filter((p) => p.id === app.assigned_product_id);
+        setProducts(assigned);
       }
 
       const summaryRes = await getCommissionSummary(profile.id);
       if (summaryRes.success) setSummary(summaryRes);
 
-      const saleRequestsRes = await getMySaleRequests(profile.id);
-      if (saleRequestsRes.success) setSaleRequests(saleRequestsRes);
+      const requestsRes = await getMySaleRequests(profile.id);
+      if (requestsRes.success) setMySaleRequests(requestsRes.requests);
 
       setLoading(false);
     }
@@ -111,41 +92,26 @@ export default function EmployeeDashboard() {
 
   const [aiTyping, setAiTyping] = useState(false);
 
-  useEffect(() => {
-    if (products.length === 1) setSaleProductId(products[0].id);
-    else if (products.length === 0) setSaleProductId('');
-  }, [products]);
-
-  function handleScreenshotChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setScreenshotFile(file);
-    setScreenshotPreview(URL.createObjectURL(file));
-  }
-
   async function handleRecordSale(e) {
     e.preventDefault();
-    if (!saleCustomerName.trim() || !saleProductId || !screenshotFile) return;
+    if (!saleCustomerName.trim() || !application?.assigned_product_id) return;
+    if (!saleScreenshot) {
+      setSaleMsg('Please attach a payment screenshot before submitting.');
+      return;
+    }
 
     setRecordingSale(true);
     setSaleMsg('');
 
-    // 1. Upload the payment screenshot first — the sale request isn't created without it.
-    const uploadRes = await uploadPaymentScreenshot(user.id, screenshotFile);
-    if (!uploadRes.success) {
-      setRecordingSale(false);
-      setSaleMsg(`Error: ${uploadRes.error}`);
-      return;
-    }
+    const assignedProduct = allProducts.find((p) => p.id === application.assigned_product_id);
 
-    // 2. Create a Pending sale request. No order or commission exists yet — that only
-    // happens once an Admin reviews the screenshot and approves it.
-    const res = await requestSale({
+    const res = await createSaleRequest({
       sellerId: user.id,
-      productId: saleProductId,
+      productId: application.assigned_product_id,
+      price: assignedProduct?.price || 0,
       customerName: saleCustomerName.trim(),
       customerPhone: saleCustomerPhone.trim(),
-      screenshotPath: uploadRes.path,
+      screenshotFile: saleScreenshot,
     });
 
     setRecordingSale(false);
@@ -155,36 +121,32 @@ export default function EmployeeDashboard() {
       return;
     }
 
-    setSaleMsg('✅ Sale request sent! Your commission will be added once the Admin approves the payment screenshot.');
+    setSaleMsg('✅ Sent to Admin for review. Your commission will show up here once it\'s approved.');
     setSaleCustomerName('');
     setSaleCustomerPhone('');
-    setScreenshotFile(null);
-    setScreenshotPreview(null);
-    if (products.length > 1) setSaleProductId('');
+    setSaleScreenshot(null);
 
-    // Refresh the pending list so it shows up immediately.
-    const saleRequestsRes = await getMySaleRequests(user.id);
-    if (saleRequestsRes.success) setSaleRequests(saleRequestsRes);
+    // Refresh the request list so the new Pending entry shows up immediately.
+    const requestsRes = await getMySaleRequests(user.id);
+    if (requestsRes.success) setMySaleRequests(requestsRes.requests);
   }
 
-  async function handleAddProduct(e) {
+  async function handleRequestSwitch(e) {
     e.preventDefault();
-    if (!addProductId || !user) return;
+    if (!switchProductId || !application) return;
 
-    setAdding(true);
-    setAddMsg('');
-    const res = await requestAddProduct(user.id, addProductId);
-    setAdding(false);
+    setSwitching(true);
+    setSwitchMsg('');
+    const res = await requestProductChange(application.id, switchProductId);
+    setSwitching(false);
 
     if (!res.success) {
-      setAddMsg(`Error: ${res.error}`);
+      setSwitchMsg(`Error: ${res.error}`);
       return;
     }
-    setAddMsg('Request sent! Waiting for Admin approval.');
-    setAddProductId('');
-
-    const refreshed = await getSellerProducts(user.id);
-    if (refreshed.success) setSellerProducts(refreshed);
+    setApplication(res.application);
+    setSwitchMsg('Request sent! Waiting for Admin approval.');
+    setSwitchProductId('');
   }
 
   async function sendMessage(e) {
@@ -198,21 +160,21 @@ export default function EmployeeDashboard() {
     setAiTyping(true);
 
     try {
-      const res = await fetch('/api/chat', {
+      const res = await fetch('/api/ai-assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userText,
-          products,
-          sellerName: user?.full_name,
+          history: messages,
         }),
       });
       const data = await res.json();
 
-      const replyText = res.ok ? data.reply : getFallbackResponse(userText);
+      const replyText = res.ok && data.success ? data.reply : getFallbackResponse(userText);
       setMessages((prev) => [...prev, { from: 'ai', text: replyText }]);
     } catch (err) {
-      setMessages((prev) => [...prev, { from: 'ai', text: getFallbackResponse(userText) }]);
+      const replyText = getFallbackResponse(userText);
+      setMessages((prev) => [...prev, { from: 'ai', text: replyText }]);
     } finally {
       setAiTyping(false);
     }
@@ -395,11 +357,11 @@ export default function EmployeeDashboard() {
 
         <div className="content-grid">
           <section className="panel">
-            <h2>Your products</h2>
+            <h2>Your assigned product</h2>
             <div className="product-list">
               {products.length === 0 ? (
                 <p className="empty-state">
-                  No approved products yet — request one below, or contact the Admin.
+                  No product assigned yet — contact the Admin to get a product assigned to you.
                 </p>
               ) : (
                 products.map((p) => (
@@ -423,20 +385,6 @@ export default function EmployeeDashboard() {
               <div className="record-sale-box">
                 <p className="switch-label">Just sold to a customer? Confirm it here:</p>
                 <form onSubmit={handleRecordSale} className="record-sale-form">
-                  {products.length > 1 && (
-                    <select
-                      value={saleProductId}
-                      onChange={(e) => setSaleProductId(e.target.value)}
-                      required
-                    >
-                      <option value="">Which product?</option>
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
                   <input
                     placeholder="Customer name"
                     value={saleCustomerName}
@@ -450,68 +398,72 @@ export default function EmployeeDashboard() {
                   />
                   <label className="screenshot-label">
                     Payment screenshot (required)
-                    <input type="file" accept="image/*" onChange={handleScreenshotChange} required />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setSaleScreenshot(e.target.files?.[0] || null)}
+                      required
+                    />
                   </label>
-                  {screenshotPreview && (
-                    <img src={screenshotPreview} alt="Payment screenshot preview" className="screenshot-preview" />
-                  )}
                   <button
                     className="approve-btn"
                     type="submit"
-                    disabled={
-                      recordingSale || !saleCustomerName.trim() || !saleProductId || !screenshotFile
-                    }
+                    disabled={recordingSale || !saleCustomerName.trim() || !saleScreenshot}
                   >
                     {recordingSale ? 'Sending…' : '✅ Confirm sale'}
                   </button>
                 </form>
                 {saleMsg && <p className="switch-msg">{saleMsg}</p>}
 
-                {saleRequests.pending.length > 0 && (
-                  <p className="pending-note" style={{ marginTop: 10 }}>
-                    ⏳ Waiting for Admin approval: {saleRequests.pending.length} sale
-                    {saleRequests.pending.length > 1 ? 's' : ''} (Rs.{' '}
-                    {saleRequests.pending.reduce((sum, r) => sum + Number(r.price), 0).toFixed(0)} total)
-                  </p>
+                {mySaleRequests.length > 0 && (
+                  <div className="sale-history">
+                    <p className="switch-label">Your recent sale requests</p>
+                    {mySaleRequests.slice(0, 5).map((r) => (
+                      <div key={r.id} className="sale-history-row">
+                        <span>{r.customer_name} — {r.product?.name || r.product_id}</span>
+                        <span className={`badge badge-${r.status.toLowerCase()}`}>{r.status}</span>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
 
-            {sellerProducts.pending.length > 0 && (
-              <div className="switch-box">
-                <p className="pending-note">
-                  ⏳ Waiting for Admin approval:{' '}
-                  <strong>
-                    {sellerProducts.pending
-                      .map((r) => allProducts.find((p) => p.id === r.product_id)?.name || r.product_id)
-                      .join(', ')}
-                  </strong>
-                </p>
-              </div>
-            )}
-
             <div className="switch-box">
-              <p className="switch-label">Want to sell something else too?</p>
-              <form onSubmit={handleAddProduct} className="switch-form">
-                <select value={addProductId} onChange={(e) => setAddProductId(e.target.value)}>
-                  <option value="">Choose a product…</option>
-                  {allProducts
-                    .filter(
-                      (p) =>
-                        !products.some((owned) => owned.id === p.id) &&
-                        !sellerProducts.pending.some((r) => r.product_id === p.id)
-                    )
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} — Rs. {p.price}
-                      </option>
-                    ))}
-                </select>
-                <button className="edit-btn" type="submit" disabled={adding || !addProductId}>
-                  {adding ? 'Sending…' : 'Request product'}
-                </button>
-              </form>
-              {addMsg && <p className="switch-msg">{addMsg}</p>}
+              {application?.requested_product_id &&
+              application.requested_product_id !== application.assigned_product_id ? (
+                <p className="pending-note">
+                  ⏳ Your request to switch to{' '}
+                  <strong>
+                    {allProducts.find((p) => p.id === application.requested_product_id)?.name ||
+                      application.requested_product_id}
+                  </strong>{' '}
+                  is waiting for Admin approval.
+                </p>
+              ) : (
+                <>
+                  <p className="switch-label">Want to sell something else?</p>
+                  <form onSubmit={handleRequestSwitch} className="switch-form">
+                    <select
+                      value={switchProductId}
+                      onChange={(e) => setSwitchProductId(e.target.value)}
+                    >
+                      <option value="">Choose a different product…</option>
+                      {allProducts
+                        .filter((p) => p.id !== application?.assigned_product_id)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} — Rs. {p.price}
+                          </option>
+                        ))}
+                    </select>
+                    <button className="edit-btn" type="submit" disabled={switching || !switchProductId}>
+                      {switching ? 'Sending…' : 'Request switch'}
+                    </button>
+                  </form>
+                  {switchMsg && <p className="switch-msg">{switchMsg}</p>}
+                </>
+              )}
             </div>
           </section>
 
@@ -532,6 +484,7 @@ export default function EmployeeDashboard() {
                 placeholder="e.g. what should I sell?"
                 disabled={aiTyping}
               />
+
               <button className="send-btn" type="submit" disabled={aiTyping}>
                 {aiTyping ? '…' : 'Send'}
               </button>
@@ -725,24 +678,49 @@ export default function EmployeeDashboard() {
         }
 
         .screenshot-label {
+          flex-basis: 100%;
+          font-size: 12px;
+          color: #6b7878;
           display: flex;
           flex-direction: column;
           gap: 4px;
-          font-size: 12px;
-          color: #6b7878;
-          flex-basis: 100%;
         }
 
-        .screenshot-label input {
+        .sale-history {
+          margin-top: 14px;
+          padding-top: 12px;
+          border-top: 1px solid #eef2f2;
+        }
+
+        .sale-history-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
           font-size: 13px;
+          padding: 6px 0;
         }
 
-        .screenshot-preview {
-          width: 90px;
-          height: 90px;
-          object-fit: cover;
-          border-radius: 8px;
-          border: 1px solid #dde5e5;
+        .badge {
+          padding: 3px 10px;
+          border-radius: 20px;
+          font-size: 11px;
+          font-weight: 700;
+          text-transform: uppercase;
+        }
+
+        .badge-pending {
+          background: #fdf0d9;
+          color: #a8710b;
+        }
+
+        .badge-approved {
+          background: #dceee0;
+          color: #2f7a4f;
+        }
+
+        .badge-rejected {
+          background: #fbe1de;
+          color: #a83b2c;
         }
 
         .approve-btn {

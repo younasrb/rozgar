@@ -49,13 +49,6 @@ export async function approveApplication(applicationId, productId) {
     .single();
 
   if (error) return { success: false, error: error.message };
-
-  // Seed this seller's first product as already-approved in seller_products, so it shows up
-  // alongside any future products they request through the seller dashboard.
-  await supabase
-    .from('seller_products')
-    .insert({ seller_id: data.user_id, product_id: productId, status: 'Approved' });
-
   return { success: true, application: data };
 }
 
@@ -126,151 +119,6 @@ export async function placeOrder(customerId, sellerId, productId, walkInCustomer
 }
 
 /**
- * Upload a payment screenshot for a sale request. Stored under "<sellerId>/<filename>" in the
- * private 'payment-screenshots' bucket — storage RLS uses that folder name to check ownership.
- * Returns the storage PATH (not a public URL, since the bucket is private). Use
- * getSignedScreenshotUrl() to view it later.
- */
-export async function uploadPaymentScreenshot(sellerId, file) {
-  const ext = file.name.split('.').pop();
-  const path = `${sellerId}/${Date.now()}.${ext}`;
-
-  const { error: uploadError } = await supabase.storage
-    .from('payment-screenshots')
-    .upload(path, file, { upsert: true });
-
-  if (uploadError) return { success: false, error: uploadError.message };
-  return { success: true, path };
-}
-
-/**
- * Get a short-lived signed URL to view a payment screenshot (the bucket is private).
- */
-export async function getSignedScreenshotUrl(path) {
-  const { data, error } = await supabase.storage
-    .from('payment-screenshots')
-    .createSignedUrl(path, 60 * 60); // valid for 1 hour
-
-  if (error) return { success: false, error: error.message };
-  return { success: true, url: data.signedUrl };
-}
-
-/**
- * Seller records a sale with proof of payment. This does NOT create an order or commission yet —
- * it creates a Pending sale_requests row. An Admin must review the screenshot and approve it
- * before the sale counts and the commission is credited (see approveSaleRequest()).
- */
-export async function requestSale({ sellerId, productId, customerName, customerPhone, screenshotPath }) {
-  const { data: product, error: productError } = await supabase
-    .from('products')
-    .select('price')
-    .eq('id', productId)
-    .single();
-
-  if (productError) return { success: false, error: productError.message };
-
-  const { data, error } = await supabase
-    .from('sale_requests')
-    .insert({
-      seller_id: sellerId,
-      product_id: productId,
-      customer_name: customerName,
-      customer_phone: customerPhone || null,
-      price: product.price,
-      payment_screenshot_path: screenshotPath,
-      status: 'Pending',
-    })
-    .select()
-    .single();
-
-  if (error) return { success: false, error: error.message };
-  return { success: true, saleRequest: data };
-}
-
-/**
- * Get one seller's own sale requests, split by status.
- */
-export async function getMySaleRequests(sellerId) {
-  const { data, error } = await supabase
-    .from('sale_requests')
-    .select('*')
-    .eq('seller_id', sellerId)
-    .order('created_at', { ascending: false });
-
-  if (error) return { success: false, error: error.message };
-
-  return {
-    success: true,
-    pending: data.filter((r) => r.status === 'Pending'),
-    approved: data.filter((r) => r.status === 'Approved'),
-    rejected: data.filter((r) => r.status === 'Rejected'),
-  };
-}
-
-/**
- * Admin: get every Pending sale request (with seller + product info) waiting for review.
- */
-export async function getPendingSaleRequests() {
-  const { data, error } = await supabase
-    .from('sale_requests')
-    .select('*, seller:seller_id ( full_name, city ), product:product_id ( name, category )')
-    .eq('status', 'Pending')
-    .order('created_at', { ascending: true });
-
-  if (error) return { success: false, error: error.message };
-  return { success: true, saleRequests: data };
-}
-
-/**
- * Admin: approve a sale request. This is the ONLY place a door-to-door sale actually turns
- * into an order + commission — it reuses the same placeOrder() logic so the commission math
- * stays in one place.
- */
-export async function approveSaleRequest(id) {
-  const { data: saleRequest, error: fetchError } = await supabase
-    .from('sale_requests')
-    .select('*')
-    .eq('id', id)
-    .single();
-
-  if (fetchError) return { success: false, error: fetchError.message };
-  if (saleRequest.status !== 'Pending') {
-    return { success: false, error: 'This sale request has already been reviewed.' };
-  }
-
-  const result = await placeOrder(null, saleRequest.seller_id, saleRequest.product_id, {
-    customerName: saleRequest.customer_name,
-    customerPhone: saleRequest.customer_phone,
-  });
-
-  if (!result.success) return result;
-
-  const { error: updateError } = await supabase
-    .from('sale_requests')
-    .update({ status: 'Approved', order_id: result.order.id })
-    .eq('id', id);
-
-  if (updateError) return { success: false, error: updateError.message };
-  return { success: true, order: result.order, commission: result.commission };
-}
-
-/**
- * Admin: reject a sale request. No order or commission is ever created for it.
- */
-export async function rejectSaleRequest(id) {
-  const { data, error } = await supabase
-    .from('sale_requests')
-    .update({ status: 'Rejected' })
-    .eq('id', id)
-    .eq('status', 'Pending')
-    .select()
-    .single();
-
-  if (error) return { success: false, error: error.message };
-  return { success: true, saleRequest: data };
-}
-
-/**
  * Get a seller's total sales + total commission earned.
  */
 export async function getCommissionSummary(sellerId) {
@@ -319,97 +167,59 @@ export async function getApprovedSellersFull() {
 }
 
 /**
- * Seller: request to add a NEW product to their lineup. This does not sell it immediately —
- * it creates a Pending row that only an Admin can approve. A seller can hold as many approved
- * products as they like; there's no limit and no "switch" — products are additive.
+ * Admin: immediately reassign an approved seller's product (no request/approval cycle needed —
+ * admin has full authority). Also clears any pending change request on that application.
  */
-export async function requestAddProduct(sellerId, productId) {
+export async function adminSetAssignedProduct(applicationId, productId) {
   const { data, error } = await supabase
-    .from('seller_products')
-    .insert({ seller_id: sellerId, product_id: productId, status: 'Pending' })
+    .from('applications')
+    .update({ assigned_product_id: productId, requested_product_id: productId })
+    .eq('id', applicationId)
     .select()
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, sellerProduct: data };
+  return { success: true, application: data };
 }
 
 /**
- * Get one seller's products, split by status. If the same product was requested more than once
- * (e.g. rejected then re-requested), only the most recent request for that product is kept.
+ * Seller: request a different product to sell. This does NOT change assigned_product_id —
+ * it only flags a pending request for the Admin to review and approve/reject.
  */
-export async function getSellerProducts(sellerId) {
+export async function requestProductChange(applicationId, newProductId) {
   const { data, error } = await supabase
-    .from('seller_products')
-    .select('*')
-    .eq('seller_id', sellerId)
-    .order('created_at', { ascending: false });
-
-  if (error) return { success: false, error: error.message };
-
-  const latestByProduct = {};
-  for (const row of data) {
-    if (!latestByProduct[row.product_id]) latestByProduct[row.product_id] = row;
-  }
-  const rows = Object.values(latestByProduct);
-
-  return {
-    success: true,
-    approved: rows.filter((r) => r.status === 'Approved'),
-    pending: rows.filter((r) => r.status === 'Pending'),
-    rejected: rows.filter((r) => r.status === 'Rejected'),
-  };
-}
-
-/**
- * Admin: every seller's product requests, across all sellers (used to build the Admin's
- * "Product requests" panel). Also de-duplicates to the latest request per seller+product.
- */
-export async function getAllSellerProducts() {
-  const { data, error } = await supabase
-    .from('seller_products')
-    .select('*, seller:seller_id ( full_name, city )')
-    .order('created_at', { ascending: false });
-
-  if (error) return { success: false, error: error.message };
-
-  const latestByKey = {};
-  for (const row of data) {
-    const key = `${row.seller_id}:${row.product_id}`;
-    if (!latestByKey[key]) latestByKey[key] = row;
-  }
-
-  return { success: true, sellerProducts: Object.values(latestByKey) };
-}
-
-/**
- * Admin: approve a seller's pending product request.
- */
-export async function approveProductRequest(id) {
-  const { data, error } = await supabase
-    .from('seller_products')
-    .update({ status: 'Approved' })
-    .eq('id', id)
+    .from('applications')
+    .update({ requested_product_id: newProductId })
+    .eq('id', applicationId)
     .select()
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, sellerProduct: data };
+  return { success: true, application: data };
 }
 
 /**
- * Admin: reject a seller's pending product request.
+ * Admin: approve a seller's pending product-change request (requested_product_id becomes the
+ * new assigned_product_id).
  */
-export async function rejectProductRequest(id) {
+export async function approveProductChange(applicationId, productId) {
+  return adminSetAssignedProduct(applicationId, productId);
+}
+
+/**
+ * Admin: reject a seller's pending product-change request — resets requested back to whatever
+ * is currently assigned, so the "pending request" banner disappears.
+ */
+export async function rejectProductChange(applicationId, currentAssignedProductId) {
   const { data, error } = await supabase
-    .from('seller_products')
-    .update({ status: 'Rejected' })
-    .eq('id', id)
+    .from('applications')
+    .update({ requested_product_id: currentAssignedProductId })
+    .eq('id', applicationId)
     .select()
     .single();
 
   if (error) return { success: false, error: error.message };
-  return { success: true, sellerProduct: data };
+  return { success: true, application: data };
 }
 
 export async function getPendingApplications() {
@@ -500,4 +310,157 @@ export async function getApprovedSellers() {
 
   if (error) return { success: false, error: error.message };
   return { success: true, sellers: data };
+}
+
+// ---------------------------------------------------------------------------
+// SALE REQUESTS (door-to-door sales with proof-of-payment)
+// A seller never creates a commission directly. Recording a walk-in sale uploads a
+// payment screenshot to the private 'payment-screenshots' bucket and creates a Pending
+// row here — the real order + commission only exist once an Admin reviews the screenshot
+// and approves the request. This is what stops a seller from fabricating sales for
+// commission they didn't actually earn.
+// ---------------------------------------------------------------------------
+
+/**
+ * Seller: submit a walk-in sale for Admin review, with proof-of-payment attached.
+ */
+export async function createSaleRequest({ sellerId, productId, price, customerName, customerPhone, screenshotFile }) {
+  const ext = screenshotFile.name.split('.').pop();
+  const path = `${sellerId}/${Date.now()}.${ext}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('payment-screenshots')
+    .upload(path, screenshotFile);
+
+  if (uploadError) return { success: false, error: uploadError.message };
+
+  const { data, error } = await supabase
+    .from('sale_requests')
+    .insert({
+      seller_id: sellerId,
+      product_id: productId,
+      customer_name: customerName,
+      customer_phone: customerPhone || null,
+      price,
+      payment_screenshot_path: path,
+      status: 'Pending',
+    })
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, saleRequest: data };
+}
+
+/**
+ * Seller: view their own sale requests (Pending/Approved/Rejected), newest first.
+ */
+export async function getMySaleRequests(sellerId) {
+  const { data, error } = await supabase
+    .from('sale_requests')
+    .select('*, product:product_id(name)')
+    .eq('seller_id', sellerId)
+    .order('created_at', { ascending: false });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, requests: data };
+}
+
+/**
+ * Admin: every Pending sale request, oldest first (first in line to review).
+ */
+export async function getPendingSaleRequests() {
+  const { data, error } = await supabase
+    .from('sale_requests')
+    .select('*, product:product_id(name), seller:seller_id(full_name)')
+    .eq('status', 'Pending')
+    .order('created_at', { ascending: true });
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, requests: data };
+}
+
+/**
+ * Get a short-lived signed URL to view a payment screenshot (the bucket is private).
+ */
+export async function getScreenshotSignedUrl(path) {
+  const { data, error } = await supabase.storage
+    .from('payment-screenshots')
+    .createSignedUrl(path, 300); // 5 minutes
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, url: data.signedUrl };
+}
+
+/**
+ * Admin: approve a Pending sale request. Only on approval does the real order +
+ * commission get created — this is the one moment a seller's commission total goes up.
+ */
+export async function approveSaleRequest(requestId) {
+  const { data: request, error: reqError } = await supabase
+    .from('sale_requests')
+    .select('*')
+    .eq('id', requestId)
+    .single();
+
+  if (reqError) return { success: false, error: reqError.message };
+  if (request.status !== 'Pending') {
+    return { success: false, error: 'This request was already reviewed.' };
+  }
+
+  const orderRes = await placeOrder(null, request.seller_id, request.product_id, {
+    customerName: request.customer_name,
+    customerPhone: request.customer_phone,
+  });
+
+  if (!orderRes.success) return orderRes;
+
+  const { data, error } = await supabase
+    .from('sale_requests')
+    .update({ status: 'Approved', order_id: orderRes.order.id })
+    .eq('id', requestId)
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, saleRequest: data, order: orderRes.order, commission: orderRes.commission };
+}
+
+/**
+ * Admin: reject a Pending sale request. No order or commission is ever created.
+ */
+export async function rejectSaleRequest(requestId) {
+  const { data, error } = await supabase
+    .from('sale_requests')
+    .update({ status: 'Rejected' })
+    .eq('id', requestId)
+    .select()
+    .single();
+
+  if (error) return { success: false, error: error.message };
+  return { success: true, saleRequest: data };
+}
+
+// ---------------------------------------------------------------------------
+// PLATFORM IMPACT (public transparency numbers — the mission: jobs, commissions
+// paid to sellers, and the Education Fund those sales generate).
+// ---------------------------------------------------------------------------
+
+/**
+ * Public, aggregate-only numbers for the Impact page. Calls a security-definer SQL
+ * function (see schema.sql) so anonymous visitors can see totals without any RLS
+ * policy having to expose individual sellers', customers', or orders' data.
+ */
+export async function getPlatformImpact() {
+  const { data, error } = await supabase.rpc('get_platform_impact');
+  if (error) return { success: false, error: error.message };
+  // rpc() returns an array with one row for a `returns table (...)` function
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    success: true,
+    sellersEmployed: Number(row?.sellers_employed || 0),
+    totalSales: Number(row?.total_sales || 0),
+    totalCommissionsPaid: Number(row?.total_commissions_paid || 0),
+    totalEducationFund: Number(row?.total_education_fund || 0),
+  };
 }
